@@ -24,12 +24,17 @@ def home() -> lt.Component:
 `app` is a regular ASGI/FastAPI app — `uvicorn main:app` serves the rendered screen at
 `/screens/home`.
 
+![Saving the Python file live-reloads the screen on the phone](docs/hot-reload.gif)
+
+*The dev loop: save the Python file, `uvicorn --reload` restarts the server, the shell
+reconnects over WebSocket and renders the fresh screen — no rebuild, no reinstall.*
+
 ## Status
 
 Early development, built in public. Working today: a small Python DSL (text, image,
 column/row, buttons with navigate actions), a FastAPI server that exposes screens as
-DivKit card JSON, and an Android shell that renders a screen from that server. Not working
-yet: tap actions in the shell, the iOS shell, state, hot reload.
+DivKit card JSON, and an Android shell that renders screens from that server with live
+reload. Not working yet: tap actions in the shell, the iOS shell, state.
 
 ## How it will work
 
@@ -38,8 +43,7 @@ Python DSL (sdk-python/)  →  DivKit JSON over HTTP/WebSocket  →  native shel
 ```
 
 - **sdk-python/** — the `latawiec` package: component DSL built on
-  [pydivkit](https://pypi.org/project/pydivkit/) and the FastAPI-based screen server;
-  a dev server with hot reload comes next.
+  [pydivkit](https://pypi.org/project/pydivkit/) and the FastAPI-based screen server.
 - **shell-android/** — a thin, fully native Kotlin app: DivKit renders whatever the server
   sends. No Flutter, no React Native, no webview.
 - **shell-ios/** (planned) — the same, in Swift.
@@ -59,9 +63,11 @@ To see a screen on a phone, start the example server and install the shell on a 
 emulator (the shell's default server URL is the emulator's host loopback):
 
 ```sh
-cd sdk-python && uv run uvicorn examples.hello:app --host 0.0.0.0
+cd sdk-python && uv run uvicorn examples.hello:app --host 0.0.0.0 --reload
 cd shell-android && ./gradlew installDebug   # physical device: add -PserverUrl=http://<mac-ip>:8000
 ```
+
+Edit `examples/hello.py` while both are running and the phone follows your saves.
 
 ## License
 
