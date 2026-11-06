@@ -25,6 +25,7 @@ dev = [
     "pyright>=1.1.390",
     "httpx2>=2.0",
     "uvicorn>=0.30",
+    "websockets>=13",
 ]
 
 [tool.ruff]
