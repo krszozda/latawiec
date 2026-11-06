@@ -23,5 +23,5 @@ def home() -> lt.Component:
 def checkout() -> lt.Component:
     return lt.Column(
         lt.Text("Checkout", size=28),
-        lt.Text("Navigation lands here once the shell handles latawiec:// actions."),
+        lt.Text("A server-defined button brought you here; system back returns home."),
     )

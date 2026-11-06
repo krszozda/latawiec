@@ -32,9 +32,10 @@ reconnects over WebSocket and renders the fresh screen — no rebuild, no reinst
 ## Status
 
 Early development, built in public. Working today: a small Python DSL (text, image,
-column/row, buttons with navigate actions), a FastAPI server that exposes screens as
-DivKit card JSON, and an Android shell that renders screens from that server with live
-reload. Not working yet: tap actions in the shell, the iOS shell, state.
+column/row, buttons), a FastAPI server that exposes screens as DivKit card JSON, and an
+Android shell that renders screens from that server with live reload and real navigation —
+a server-defined button opens the next screen, system back returns. Not working yet: the
+iOS shell, state.
 
 ## How it will work
 
