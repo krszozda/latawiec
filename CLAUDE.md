@@ -21,3 +21,6 @@ and `shell-ios/`.
 - Feature work happens on branches and lands via PR; the maintainer merges.
 - Must pass before pushing (run in `sdk-python/`):
   `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run pytest`
+- When `shell-android/` changed, it must also build: `./gradlew :app:assembleDebug`.
+- DivKit APIs are verified against the published artifacts (javap on the AAR classes)
+  before use, not written from memory.

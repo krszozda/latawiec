@@ -19,3 +19,16 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run pytest
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shell-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: ./gradlew :app:assembleDebug --no-daemon

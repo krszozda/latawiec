@@ -5,3 +5,6 @@ __pycache__/
 .ruff_cache/
 dist/
 .DS_Store
+.gradle/
+build/
+local.properties
