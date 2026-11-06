@@ -29,11 +29,22 @@ class Latawiec(FastAPI):
 
         return register
 
-    async def _screen_payload(self, name: str) -> dict[str, Any]:
+    @property
+    def screen_names(self) -> tuple[str, ...]:
+        return tuple(self._screens)
+
+    def render_screen(self, name: str) -> dict[str, Any]:
+        """Render a registered screen to the DivKit card payload a shell renders."""
         builder = self._screens.get(name)
         if builder is None:
-            raise HTTPException(status_code=404, detail=f"no screen named {name!r}")
+            raise KeyError(f"no screen named {name!r}")
         return render(builder())
+
+    async def _screen_payload(self, name: str) -> dict[str, Any]:
+        try:
+            return self.render_screen(name)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"no screen named {name!r}") from None
 
     async def _screen_socket(self, websocket: WebSocket, name: str) -> None:
         """Send the screen once, then hold the socket open.
@@ -43,11 +54,12 @@ class Latawiec(FastAPI):
         the fresh screen.
         """
         await websocket.accept()
-        builder = self._screens.get(name)
-        if builder is None:
+        try:
+            payload = self.render_screen(name)
+        except KeyError:
             await websocket.close(code=NO_SUCH_SCREEN, reason=f"no screen named {name!r}")
             return
-        await websocket.send_json(render(builder()))
+        await websocket.send_json(payload)
         try:
             while True:
                 await websocket.receive_text()

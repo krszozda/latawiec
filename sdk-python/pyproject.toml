@@ -1,6 +1,6 @@
 [project]
 name = "latawiec"
-version = "0.0.1"
+version = "0.1.0"
 description = "Native mobile apps flown from a Python backend — server-driven UI on DivKit"
 readme = "README.md"
 license = "Apache-2.0"
@@ -14,6 +14,14 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/krszozda/latawiec"
 
+[project.optional-dependencies]
+mcp = [
+    "mcp>=2",
+]
+
+[project.scripts]
+latawiec-mcp = "latawiec.mcp:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -26,6 +34,7 @@ dev = [
     "httpx2>=2.0",
     "uvicorn>=0.30",
     "websockets>=13",
+    "mcp>=2",
 ]
 
 [tool.ruff]
