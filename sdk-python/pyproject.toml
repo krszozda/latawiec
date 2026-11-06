@@ -1,0 +1,32 @@
+[project]
+name = "latawiec"
+version = "0.0.1"
+description = "Native mobile apps flown from a Python backend — server-driven UI on DivKit"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "Krystian Szozda", email = "kr.szozda@gmail.com" }]
+requires-python = ">=3.11"
+dependencies = ["pydivkit>=33.10,<34"]
+
+[project.urls]
+Repository = "https://github.com/krszozda/latawiec"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9", "pyright>=1.1.390"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+include = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
