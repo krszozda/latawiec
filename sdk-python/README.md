@@ -6,12 +6,19 @@ Native mobile apps flown from a Python backend — server-driven UI on
 ```python
 import latawiec as lt
 
-screen = lt.Column(
-    lt.Text("Hello from the server", size=24),
-)
-payload = lt.render(screen)  # DivKit card JSON, ready for a native shell to render
+app = lt.Latawiec()
+
+
+@app.screen("home")
+def home() -> lt.Component:
+    return lt.Column(
+        lt.Text("Hello from the server", size=24),
+        lt.Button("Open checkout", on_tap=lt.Navigate("checkout")),
+    )
 ```
 
+`app` is a regular ASGI/FastAPI app; `uvicorn main:app` serves the rendered DivKit card
+JSON at `/screens/home`, ready for a native shell to render.
+
 Early development. See the [repository](https://github.com/krszozda/latawiec) for the
-full picture: native shells, actions, navigation, and hot reload are planned but not
-built yet.
+full picture: the native shells, state, and hot reload are planned but not built yet.

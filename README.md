@@ -10,20 +10,29 @@ no app release, no Kotlin, no Swift.
 ```python
 import latawiec as lt
 
-screen = lt.Column(
-    lt.Text("Hello from the server", size=24),
-)
+app = lt.Latawiec()
+
+
+@app.screen("home")
+def home() -> lt.Component:
+    return lt.Column(
+        lt.Text("Hello from the server", size=24),
+        lt.Button("Open checkout", on_tap=lt.Navigate("checkout")),
+    )
 ```
+
+`app` is a regular ASGI/FastAPI app — `uvicorn main:app` serves the rendered screen at
+`/screens/home`.
 
 ## Status
 
-Early development, built in public. Working today: a minimal Python DSL that renders to
-DivKit card JSON. Not working yet: everything else — the native shells, actions, navigation,
-state, hot reload.
+Early development, built in public. Working today: a small Python DSL (text, image,
+column/row, buttons with navigate actions) and a FastAPI server that exposes screens as
+DivKit card JSON. Not working yet: the native shells, state, hot reload.
 
 ## How it will work
 
-```
+```text
 Python DSL (sdk-python/)  →  DivKit JSON over HTTP/WebSocket  →  native shell (Android/iOS)
 ```
 
