@@ -24,6 +24,7 @@ dev = [
     "ruff>=0.9",
     "pyright>=1.1.390",
     "httpx2>=2.0",
+    "uvicorn>=0.30",
 ]
 
 [tool.ruff]
@@ -34,7 +35,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
-include = ["src", "tests"]
+include = ["src", "tests", "examples"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
