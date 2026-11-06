@@ -48,7 +48,18 @@ Python DSL (sdk-python/)  →  DivKit JSON over HTTP/WebSocket  →  native shel
 - **shell-android/** — a thin, fully native Kotlin app: DivKit renders whatever the server
   sends. No Flutter, no React Native, no webview.
 - **shell-ios/** (planned) — the same, in Swift.
-- **mcp/** (planned) — an MCP server so coding agents can build and preview Latawiec apps.
+- **mcp** (the `latawiec[mcp]` extra) — an MCP server so coding agents can build and
+  preview Latawiec apps; see "For coding agents" below.
+
+## For coding agents
+
+The `latawiec[mcp]` extra ships an MCP server (`latawiec-mcp`, stdio) so agents can learn
+the DSL (`reference`), list an app's screens, and render any screen to its DivKit JSON
+without a server or a phone. Register it from `sdk-python/`:
+
+```json
+{ "mcpServers": { "latawiec": { "command": "uv", "args": ["run", "latawiec-mcp"] } } }
+```
 
 ## Development
 
