@@ -6,7 +6,10 @@ readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "Krystian Szozda", email = "kr.szozda@gmail.com" }]
 requires-python = ">=3.11"
-dependencies = ["pydivkit>=33.10,<34"]
+dependencies = [
+    "fastapi>=0.115",
+    "pydivkit>=33.10,<34",
+]
 
 [project.urls]
 Repository = "https://github.com/krszozda/latawiec"
@@ -16,7 +19,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.9", "pyright>=1.1.390"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.9",
+    "pyright>=1.1.390",
+    "httpx2>=2.0",
+]
 
 [tool.ruff]
 line-length = 100

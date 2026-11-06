@@ -24,6 +24,39 @@ def test_column_nests_children_vertically() -> None:
     assert [item["text"] for item in div["items"]] == ["a", "b"]
 
 
+def test_row_lays_children_side_by_side() -> None:
+    card = lt.render(lt.Row(lt.Text("a"), lt.Text("b")))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["type"] == "container"
+    assert div["orientation"] == "horizontal"
+
+
+def test_image_renders_to_divkit_image() -> None:
+    card = lt.render(lt.Image("https://example.com/kite.png"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {"type": "image", "image_url": "https://example.com/kite.png"}
+
+
+def test_button_is_tappable_text_with_navigate_action() -> None:
+    card = lt.render(lt.Button("Buy", on_tap=lt.Navigate("checkout")))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["type"] == "text"
+    assert div["text"] == "Buy"
+    assert div["actions"] == [
+        {"log_id": "navigate:checkout", "url": "latawiec://navigate?screen=checkout"}
+    ]
+
+
+def test_navigate_percent_encodes_screen_name() -> None:
+    card = lt.render(lt.Button("Go", on_tap=lt.Navigate("a&b c")))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action["url"] == "latawiec://navigate?screen=a%26b%20c"
+
+
 def test_render_wraps_root_in_card_envelope() -> None:
     card = lt.render(lt.Text("x"))
 
