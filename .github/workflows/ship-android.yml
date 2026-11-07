@@ -1,0 +1,67 @@
+name: ship-android
+
+# Builds a signed, branded release bundle for Play Console upload.
+# Secrets: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. See docs/shipping.md.
+on:
+  workflow_dispatch:
+    inputs:
+      appId:
+        description: Application id (e.g. com.example.kiteshop)
+        required: true
+      appName:
+        description: App name shown under the icon
+        required: true
+      serverUrl:
+        description: Production server URL (https)
+        required: true
+      versionName:
+        description: User-visible version
+        required: true
+      versionCode:
+        description: Monotonic integer Play requires to grow
+        required: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shell-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: materialize keystore
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > release.jks
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      # Inputs go through the environment: literal interpolation would let
+      # an apostrophe in the app name break out of the shell quoting.
+      - name: build signed bundle
+        run: >
+          ./gradlew :app:bundleRelease --no-daemon
+          -PappId="$APP_ID"
+          -PappName="$APP_NAME"
+          -PserverUrl="$SERVER_URL"
+          -PversionName="$VERSION_NAME"
+          -PversionCode="$VERSION_CODE"
+          -PreleaseStoreFile="$PWD/release.jks"
+          -PreleaseStorePassword="$STORE_PASSWORD"
+          -PreleaseKeyAlias="$KEY_ALIAS"
+          -PreleaseKeyPassword="$KEY_PASSWORD"
+        env:
+          APP_ID: ${{ inputs.appId }}
+          APP_NAME: ${{ inputs.appName }}
+          SERVER_URL: ${{ inputs.serverUrl }}
+          VERSION_NAME: ${{ inputs.versionName }}
+          VERSION_CODE: ${{ inputs.versionCode }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.appId }}-${{ inputs.versionName }}
+          path: shell-android/app/build/outputs/bundle/release/app-release.aab

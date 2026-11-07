@@ -4,11 +4,20 @@ import os
 private let log = Logger(subsystem: "io.github.krszozda.latawiec", category: "shell")
 
 enum Server {
-    /// The simulator reaches the Mac's loopback directly; on a device, launch
-    /// with the LATAWIEC_SERVER_URL environment variable set to the Mac's LAN
-    /// address.
-    static let url = ProcessInfo.processInfo.environment["LATAWIEC_SERVER_URL"]
-        ?? "http://127.0.0.1:8000"
+    /// Dev order: the LATAWIEC_SERVER_URL environment variable (simulator,
+    /// UI tests), then the URL a store build bakes into Info.plist via the
+    /// LATAWIEC_SERVER_URL build setting (see docs/shipping.md), then the
+    /// Mac's loopback.
+    static let url: String = {
+        if let env = ProcessInfo.processInfo.environment["LATAWIEC_SERVER_URL"] {
+            return env
+        }
+        if let baked = Bundle.main.object(forInfoDictionaryKey: "LatawiecServerURL") as? String,
+           !baked.isEmpty {
+            return baked
+        }
+        return "http://127.0.0.1:8000"
+    }()
 
     /// Dev keeps the live-reload socket; production fetches and caches.
     static var dev = true

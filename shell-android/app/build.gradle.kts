@@ -10,11 +10,18 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "io.github.krszozda.latawiec.shell"
+        // Shipping your own app overrides these: see docs/shipping.md.
+        applicationId =
+            providers.gradleProperty("appId").getOrElse("io.github.krszozda.latawiec.shell")
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = providers.gradleProperty("versionCode").getOrElse("1").toInt()
+        versionName = providers.gradleProperty("versionName").getOrElse("0.1")
+        resValue(
+            "string",
+            "app_name",
+            providers.gradleProperty("appName").getOrElse("Latawiec"),
+        )
         // Emulator loopback to a `uvicorn` on the host; override with -PserverUrl=http://...
         val serverUrl = providers.gradleProperty("serverUrl").getOrElse("http://10.0.2.2:8000")
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
@@ -27,11 +34,24 @@ android {
         buildConfig = true
     }
 
+    // Store uploads need a signed bundle; local builds stay unsigned when
+    // the four properties are absent.
+    val storeFile = providers.gradleProperty("releaseStoreFile").orNull
+    if (storeFile != null) {
+        signingConfigs.create("release") {
+            this.storeFile = file(storeFile)
+            storePassword = providers.gradleProperty("releaseStorePassword").get()
+            keyAlias = providers.gradleProperty("releaseKeyAlias").get()
+            keyPassword = providers.gradleProperty("releaseKeyPassword").get()
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            if (storeFile != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 
