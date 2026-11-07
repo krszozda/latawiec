@@ -47,7 +47,59 @@ final class ScreenViewController: UIViewController {
             divView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             divView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
-        connect()
+        if Server.dev {
+            connect()
+        } else {
+            fetchScreen()
+        }
+    }
+
+    /// Production path: render the last-known screen from disk right away,
+    /// then revalidate over GET and swap in the fresh payload — unless the
+    /// cached copy is "static", which lives until the manifest version moves.
+    private func fetchScreen() {
+        if let cached = ScreenCache.shared.load(screen) {
+            show(data: cached.payload)
+            if cached.policy == "static" { return }
+        }
+        let path = screen.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? screen
+        guard let url = URL(string: "\(Server.url)/screens/\(path)") else { return }
+        var request = URLRequest(url: url)
+        Auth.authorize(&request)
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else { return }
+            if let error {
+                // With a cached copy on screen this is offline mode.
+                log.warning("screen \(self.screen) fetch failed: \(String(describing: error))")
+                return
+            }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if status == 401 {
+                DispatchQueue.main.async { Auth.unauthorized() }
+                return
+            }
+            guard status == 200, let data else {
+                log.warning("screen \(self.screen) answered HTTP \(status)")
+                return
+            }
+            let header = (response as? HTTPURLResponse)?
+                .value(forHTTPHeaderField: "Cache-Control") ?? ""
+            let policy = header.contains("no-store") ? "no-store"
+                : header.contains("immutable") ? "static" : "swr"
+            if policy != "no-store" {
+                ScreenCache.shared.store(self.screen, policy: policy, payload: data)
+            }
+            self.show(data: data)
+        }.resume()
+    }
+
+    private func show(data: Data) {
+        Task { @MainActor in
+            await divView.setSource(
+                DivViewSource(kind: .data(data), cardId: DivCardID(rawValue: screen)),
+                shouldResetPreviousCardData: true
+            )
+        }
     }
 
     private func connect() {
@@ -74,12 +126,7 @@ final class ScreenViewController: UIViewController {
             case let .success(message):
                 self.reconnectDelay = 1
                 if case let .string(text) = message, let data = text.data(using: .utf8) {
-                    Task { @MainActor in
-                        await self.divView.setSource(
-                            DivViewSource(kind: .data(data), cardId: DivCardID(rawValue: self.screen)),
-                            shouldResetPreviousCardData: true
-                        )
-                    }
+                    self.show(data: data)
                 }
                 self.receive(on: task)
             case let .failure(error):

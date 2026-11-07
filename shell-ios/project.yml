@@ -27,6 +27,18 @@ targets:
           # The dev loop talks plain http/ws to a local server; anything
           # beyond the local network must use TLS.
           NSAllowsLocalNetworking: true
+  LatawiecShellTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: LatawiecShell
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/LatawiecShell.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LatawiecShell"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   LatawiecShellUITests:
     type: bundle.ui-testing
     platform: iOS
