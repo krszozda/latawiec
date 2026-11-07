@@ -224,6 +224,77 @@ def test_button_can_set_a_variable() -> None:
     }
 
 
+def test_gallery_scrolls_vertically_by_default() -> None:
+    card = lt.render(lt.Gallery(lt.Text("a"), lt.Text("b"), spacing=12))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {
+        "type": "gallery",
+        "orientation": "vertical",
+        "item_spacing": 12,
+        "items": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}],
+    }
+
+
+def test_gallery_horizontal_emits_the_orientation() -> None:
+    card = lt.render(lt.Gallery(lt.Text("a"), horizontal=True))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["orientation"] == "horizontal"
+
+
+def test_grid_lays_children_in_columns() -> None:
+    card = lt.render(lt.Grid(lt.Text("a"), lt.Text("b"), lt.Text("c"), columns=2))
+
+    div = card["card"]["states"][0]["div"]
+    wrap = {"type": "wrap_content"}
+    assert div == {
+        "type": "grid",
+        "column_count": 2,
+        "items": [
+            {"type": "text", "text": "a", "width": wrap},
+            {"type": "text", "text": "b", "width": wrap},
+            {"type": "text", "text": "c", "width": wrap},
+        ],
+    }
+
+
+def test_grid_keeps_an_explicit_child_width() -> None:
+    card = lt.render(lt.Grid(lt.Text("a", style=lt.Style(width=80)), columns=1))
+
+    item = card["card"]["states"][0]["div"]["items"][0]
+    assert item["width"] == {"type": "fixed", "value": 80}
+
+
+def test_separator_draws_a_colored_rule() -> None:
+    card = lt.render(lt.Separator(color="#000000"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {"type": "separator", "delimiter_style": {"color": "#000000"}}
+
+
+def test_spacer_is_a_transparent_separator_of_fixed_size() -> None:
+    card = lt.render(lt.Spacer(height=16))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {
+        "type": "separator",
+        "height": {"type": "fixed", "value": 16},
+        "delimiter_style": {"color": "#00000000"},
+    }
+
+
+def test_spacer_without_a_size_is_rejected() -> None:
+    with pytest.raises(ValueError, match="height or a width"):
+        lt.render(lt.Spacer())
+
+
+def test_control_variables_inside_collections_are_hoisted() -> None:
+    card = lt.render(lt.Gallery(lt.Grid(lt.Switch("dark"), columns=1)))
+
+    assert card["card"]["variables"] == [{"type": "boolean", "name": "dark", "value": False}]
+
+
 def test_render_wraps_root_in_card_envelope() -> None:
     card = lt.render(lt.Text("x"))
 

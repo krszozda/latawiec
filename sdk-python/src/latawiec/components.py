@@ -363,6 +363,89 @@ class Row(_Container):
     _orientation = dv.DivContainerOrientation.HORIZONTAL
 
 
+class Gallery(_Container):
+    """A scrolling list of children.
+
+    Scrolls vertically by default; DivKit's own default is horizontal, so the
+    orientation is always emitted explicitly.
+    """
+
+    def __init__(
+        self,
+        *children: Component,
+        horizontal: bool = False,
+        spacing: int | None = None,
+        style: Style | None = None,
+    ) -> None:
+        super().__init__(*children, style=style)
+        self.horizontal = horizontal
+        self.spacing = spacing
+
+    def _build(self) -> dv.Div:
+        return dv.DivGallery(
+            orientation=(
+                dv.DivGalleryOrientation.HORIZONTAL
+                if self.horizontal
+                else dv.DivGalleryOrientation.VERTICAL
+            ),
+            item_spacing=self.spacing,
+            items=[child.to_div() for child in self.children],
+        )
+
+
+class Grid(_Container):
+    """Children laid out in fixed columns, row by row."""
+
+    def __init__(self, *children: Component, columns: int, style: Style | None = None) -> None:
+        super().__init__(*children, style=style)
+        self.columns = columns
+
+    def _build(self) -> dv.Div:
+        items: list[dv.Div] = []
+        for child in self.children:
+            div = child.to_div()
+            # DivKit's default width is match_parent, which renders a grid
+            # cell empty on both platforms; unset widths become wrap_content.
+            if div.width is None:
+                div.width = dv.DivWrapContentSize()
+            items.append(div)
+        return dv.DivGrid(column_count=self.columns, items=items)
+
+
+@dataclass(frozen=True)
+class Separator(Component):
+    """A thin horizontal rule."""
+
+    color: str = "#B0BEC5"
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivSeparator(
+            delimiter_style=dv.DivSeparatorDelimiterStyle(color=self.color),
+        )
+
+
+@dataclass(frozen=True)
+class Spacer(Component):
+    """Fixed empty space; give it a height in a Column or a width in a Row.
+
+    DivKit has no spacer primitive, so this is a separator drawn transparent.
+    """
+
+    height: int | None = None
+    width: int | None = None
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        if self.height is None and self.width is None:
+            raise ValueError("Spacer needs a height or a width")
+        return dv.DivSeparator(
+            width=dv.DivFixedSize(value=self.width) if self.width is not None else None,
+            height=dv.DivFixedSize(value=self.height) if self.height is not None else None,
+            delimiter_style=dv.DivSeparatorDelimiterStyle(color="#00000000"),
+        )
+
+
 ScreenVariable = dv.StringVariable | dv.BooleanVariable | dv.IntegerVariable
 
 
