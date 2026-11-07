@@ -2,13 +2,12 @@
 
     uv run uvicorn examples.catalog:app --host 0.0.0.0
 
-One scrolling list screen plus one screen per product, all registered in a
-loop — screens are ordinary Python over ordinary data.
+One scrolling list screen plus a routed product screen — "product/{id}"
+captures the id from the path, so one builder serves every product.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 
 import latawiec as lt
 
@@ -21,11 +20,14 @@ class Product:
     photo: str
 
 
-PRODUCTS = [
-    Product("box", "Box kite", "$29", "https://picsum.photos/id/1003/800/500"),
-    Product("delta", "Delta kite", "$35", "https://picsum.photos/id/1015/800/500"),
-    Product("stunt", "Stunt kite", "$59", "https://picsum.photos/id/1036/800/500"),
-]
+PRODUCTS = {
+    product.slug: product
+    for product in (
+        Product("box", "Box kite", "$29", "https://picsum.photos/id/1003/800/500"),
+        Product("delta", "Delta kite", "$35", "https://picsum.photos/id/1015/800/500"),
+        Product("stunt", "Stunt kite", "$59", "https://picsum.photos/id/1036/800/500"),
+    )
+}
 
 app = lt.Latawiec()
 
@@ -39,7 +41,7 @@ def product_card(product: Product) -> lt.Component:
         lt.Text(product.price, color="#2962FF", weight="bold"),
         lt.Button(
             "View",
-            on_tap=lt.Navigate(product.slug),
+            on_tap=lt.Navigate(f"product/{product.slug}"),
             style=lt.Style(margin=lt.Edges(top=8)),
         ),
         style=lt.Style(padding=12, margin=GUTTER, background="#F5F5F5", corner_radius=16),
@@ -56,7 +58,7 @@ def home() -> lt.Component:
             # Clears the status bar: the shells render edge to edge.
             style=lt.Style(margin=lt.Edges(top=48, left=16, right=16, bottom=8)),
         ),
-        *[product_card(product) for product in PRODUCTS],
+        *[product_card(product) for product in PRODUCTS.values()],
         lt.Text(
             f"Rendered server-side at {datetime.now():%H:%M:%S}",
             color="#757575",
@@ -66,7 +68,11 @@ def home() -> lt.Component:
     )
 
 
-def product_screen(product: Product) -> lt.Component:
+@app.screen("product/{id}")
+def product_screen(ctx: lt.Context) -> lt.Component:
+    product = PRODUCTS.get(ctx.params["id"])
+    if product is None:
+        return lt.Column(lt.Text("No such product.", style=lt.Style(margin=48)))
     return lt.Column(
         lt.Image(product.photo),
         lt.Text(product.name, size=28, weight="bold", style=lt.Style(margin=GUTTER)),
@@ -74,7 +80,3 @@ def product_screen(product: Product) -> lt.Component:
         lt.Separator(style=lt.Style(margin=lt.Edges(top=12, left=16, right=16))),
         lt.Text("System back returns to the list.", style=lt.Style(margin=16)),
     )
-
-
-for product in PRODUCTS:
-    app.screen(product.slug)(partial(product_screen, product))

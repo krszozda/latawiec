@@ -59,6 +59,10 @@ App and server (Latawiec subclasses FastAPI):
     def home() -> lt.Component:
         return lt.Column(lt.Text("Hello", size=28))
 
+    @app.screen("product/{id}")              # {placeholders} capture path params
+    def product(ctx: lt.Context) -> lt.Component:
+        return lt.Column(lt.Text(ctx.params["id"]))  # Navigate(f"product/{slug}")
+
 - GET /screens/{name} returns the rendered card JSON; unknown names 404.
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
 - @app.action(name) registers a Submit handler: it gets the submitted values
@@ -68,10 +72,12 @@ App and server (Latawiec subclasses FastAPI):
   shown when the server answers 401; shells read GET /manifest.
 - app.assets("static") serves that directory under /assets — tab icons point
   there, e.g. Tab("home", "Home", icon="/assets/home.png").
-- @app.auth registers the token check (gets the bearer token or None). Guarded
-  screens/actions then need Authorization: Bearer <token>; register the login
-  screen and its sign-in action with public=True. A sign-in handler returns
-  Grant(token, screen) — the shell stores the token and navigates on.
+- @app.auth registers the token check: it gets the bearer token (or None) and
+  returns a truthy user object, or None to reject. Guarded screens/actions then
+  need Authorization: Bearer <token>; register the login screen and its sign-in
+  action with public=True. A sign-in handler returns Grant(token, screen) — the
+  shell stores the token and navigates on. Builders may take a Context
+  (ctx.user, ctx.params); action handlers may take it as a second argument.
 
 Dev loop: `uvicorn module:app --host 0.0.0.0 --reload` — the native shells
 (Android and iOS) reconnect on every save and live-reload the screen. System
