@@ -99,8 +99,8 @@ class Latawiec(FastAPI):
         self.login = login
         """Screen the shells show when the server answers 401/4401."""
         self._auth: AuthHandler | None = None
-        self._screens: dict[str, tuple[Callable[..., Component], bool]] = {}
-        self._actions: dict[str, tuple[Callable[..., ActionResult], bool]] = {}
+        self._screens: dict[str, tuple[ScreenBuilder, bool]] = {}
+        self._actions: dict[str, tuple[ActionHandler, bool]] = {}
         self._public_screens: set[str] = set()
         self._public_actions: set[str] = set()
         self.add_api_route("/manifest", self._manifest)
