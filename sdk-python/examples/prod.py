@@ -19,7 +19,19 @@ def home() -> lt.Component:
     return lt.Column(
         lt.Text("Prod home", size=28, weight="bold", style=lt.Style(margin=48)),
         lt.Button("About", on_tap=lt.Navigate("about"), style=lt.Style(margin=16)),
+        lt.Button(
+            "Break",
+            on_tap=lt.Submit("boom", send=()),
+            color="#B71C1C",
+            style=lt.Style(margin=lt.Edges(left=16, right=16)),
+        ),
     )
+
+
+@app.action("boom")
+def boom(values: dict[str, str]) -> None:
+    # The shells' error-feedback UI tests need a reliably failing action.
+    raise RuntimeError("the fixture always breaks here")
 
 
 @app.screen("about", cache="static")
