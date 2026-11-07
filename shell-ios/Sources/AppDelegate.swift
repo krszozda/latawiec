@@ -9,6 +9,9 @@ enum Server {
     /// address.
     static let url = ProcessInfo.processInfo.environment["LATAWIEC_SERVER_URL"]
         ?? "http://127.0.0.1:8000"
+
+    /// Dev keeps the live-reload socket; production fetches and caches.
+    static var dev = true
 }
 
 private struct Manifest: Decodable {
@@ -25,6 +28,8 @@ private struct Manifest: Decodable {
     let tabs: [Tab]
     let theme: Theme?
     let login: String?
+    let version: String?
+    let dev: Bool?
 }
 
 @main
@@ -59,10 +64,17 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
         URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
-            let manifest = data.flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
+            // Offline boot runs on the last manifest the shell saw.
+            let raw = data ?? ScreenCache.shared.loadManifest()
+            let manifest = raw.flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 Auth.loginScreen = manifest?.login
+                if let manifest, let raw {
+                    Server.dev = manifest.dev ?? true
+                    ScreenCache.shared.adoptVersion(manifest.version)
+                    ScreenCache.shared.storeManifest(raw)
+                }
                 if let manifest, !manifest.tabs.isEmpty {
                     self.window?.rootViewController = Self.tabBarController(for: manifest)
                 } else {
