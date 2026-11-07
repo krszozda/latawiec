@@ -80,6 +80,8 @@ cd shell-android && ./gradlew installDebug   # physical device: add -PserverUrl=
 ```
 
 Edit `examples/hello.py` while both are running and the phone follows your saves.
+`examples/catalog.py` is a bigger app: a product list whose screens are generated
+from plain Python data in a loop.
 
 ## License
 
