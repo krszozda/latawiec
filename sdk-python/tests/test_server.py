@@ -80,7 +80,13 @@ def test_manifest_defaults_to_no_tabs_and_default_theme() -> None:
     response = client.get("/manifest")
 
     assert response.status_code == 200
-    assert response.json() == {"tabs": [], "theme": {"accent": "#2962FF"}, "login": None}
+    assert response.json() == {
+        "tabs": [],
+        "theme": {"accent": "#2962FF"},
+        "login": None,
+        "version": None,
+        "dev": True,
+    }
 
 
 def test_manifest_lists_tabs_and_theme() -> None:
@@ -101,6 +107,8 @@ def test_manifest_lists_tabs_and_theme() -> None:
         ],
         "theme": {"accent": "#00695C"},
         "login": None,
+        "version": None,
+        "dev": True,
     }
 
 
@@ -270,6 +278,52 @@ def test_render_screen_drives_async_builders() -> None:
 
     card = app.render_screen("home")
     assert card["card"]["states"][0]["div"]["items"][0]["text"] == "rendered"
+
+
+def test_cache_policy_rides_in_cache_control_headers() -> None:
+    app = lt.Latawiec(version="2026.11.07", dev=False)
+
+    @app.screen("about", cache="static")
+    def about() -> lt.Component:
+        return lt.Column(lt.Text("about"))
+
+    @app.screen("home")
+    def home() -> lt.Component:
+        return lt.Column(lt.Text("home"))
+
+    @app.screen("wallet", cache="no-store")
+    def wallet() -> lt.Component:
+        return lt.Column(lt.Text("wallet"))
+
+    client = TestClient(app)
+    assert client.get("/screens/about").headers["Cache-Control"] == "max-age=31536000, immutable"
+    assert (
+        client.get("/screens/home").headers["Cache-Control"]
+        == "max-age=0, stale-while-revalidate=86400"
+    )
+    assert client.get("/screens/wallet").headers["Cache-Control"] == "no-store"
+    manifest = client.get("/manifest").json()
+    assert manifest["version"] == "2026.11.07"
+    assert manifest["dev"] is False
+
+
+def test_guarded_screens_default_to_no_store() -> None:
+    guarded = guarded_app()
+
+    @guarded.screen("terms", cache="static")
+    def terms() -> lt.Component:
+        return lt.Column(lt.Text("terms"))
+
+    client = TestClient(guarded)
+
+    assert client.get("/screens/home", headers=BEARER).headers["Cache-Control"] == "no-store"
+    # An explicit policy overrides the guarded default.
+    static = client.get("/screens/terms", headers=BEARER).headers["Cache-Control"]
+    assert static == "max-age=31536000, immutable"
+    assert (
+        client.get("/screens/signin").headers["Cache-Control"]
+        == "max-age=0, stale-while-revalidate=86400"
+    )
 
 
 def test_guarded_screen_needs_the_right_token() -> None:
