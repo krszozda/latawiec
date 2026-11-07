@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 import latawiec as lt
@@ -71,3 +73,41 @@ def test_screen_socket_closes_unknown_screen_with_4404() -> None:
 
     assert message["type"] == "websocket.close"
     assert message["code"] == 4404
+
+
+def test_manifest_defaults_to_no_tabs_and_default_theme() -> None:
+    response = client.get("/manifest")
+
+    assert response.status_code == 200
+    assert response.json() == {"tabs": [], "theme": {"accent": "#2962FF"}}
+
+
+def test_manifest_lists_tabs_and_theme() -> None:
+    tabbed = lt.Latawiec(
+        tabs=[
+            lt.Tab("home", "Home", icon="/assets/home.png"),
+            lt.Tab("cart", "Cart"),
+        ],
+        theme=lt.Theme(accent="#00695C"),
+    )
+
+    response = TestClient(tabbed).get("/manifest")
+
+    assert response.json() == {
+        "tabs": [
+            {"screen": "home", "title": "Home", "icon": "/assets/home.png"},
+            {"screen": "cart", "title": "Cart", "icon": None},
+        ],
+        "theme": {"accent": "#00695C"},
+    }
+
+
+def test_assets_serves_files_from_the_mounted_directory(tmp_path: Path) -> None:
+    (tmp_path / "home.png").write_bytes(b"not really a png")
+    serving = lt.Latawiec()
+    serving.assets(str(tmp_path))
+
+    response = TestClient(serving).get("/assets/home.png")
+
+    assert response.status_code == 200
+    assert response.content == b"not really a png"
