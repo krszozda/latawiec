@@ -35,6 +35,9 @@ Components:
   # options: strings, or Option(label, value) when they differ
 - Slider(variable, min=0, max=100, initial=None, color="#2962FF")  # integer variable
 - Column(*children), Row(*children)
+- Gallery(*children, horizontal=False, spacing=None)  # scrolling list
+- Grid(*children, columns=N)  # fixed columns, row by row
+- Separator(color="#B0BEC5"), Spacer(height=N) or Spacer(width=N)
 - render(component) -> DivKit card dict (what a shell consumes)
 
 Variables bound by controls are hoisted to the card, so any component can read
