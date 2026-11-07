@@ -9,3 +9,4 @@ dist/
 build/
 local.properties
 .claude/worktrees/
+shell-android/.kotlin/
