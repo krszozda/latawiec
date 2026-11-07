@@ -29,7 +29,7 @@ Components:
 - Button(label, on_tap=..., color="#2962FF", text_color="#FFFFFF")
   # on_tap: Navigate(screen) | SetVariable(variable, value)
   #       | Submit(action, send=(variable, ...))
-- TextInput(variable, hint=None, initial="")  # declares the variable it binds to
+- TextInput(variable, hint=None, initial="", password=False)  # declares its variable
 - Switch(variable, initial=False)  # boolean variable
 - Select(variable, options=("S", Option("Medium", "m")), hint=None, initial="")
   # options: strings, or Option(label, value) when they differ

@@ -24,6 +24,7 @@ private struct Manifest: Decodable {
 
     let tabs: [Tab]
     let theme: Theme?
+    let login: String?
 }
 
 @main
@@ -34,6 +35,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // UI tests reset the persisted token to start every run signed out.
+        if ProcessInfo.processInfo.environment["LATAWIEC_RESET_AUTH"] != nil {
+            TokenStore.clear()
+            Auth.token = nil
+        }
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = UIViewController()
         window.rootViewController?.view.backgroundColor = .systemBackground
@@ -56,6 +62,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             let manifest = data.flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
             DispatchQueue.main.async {
                 guard let self else { return }
+                Auth.loginScreen = manifest?.login
                 if let manifest, !manifest.tabs.isEmpty {
                     self.window?.rootViewController = Self.tabBarController(for: manifest)
                 } else {
