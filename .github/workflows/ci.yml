@@ -32,6 +32,13 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: ./gradlew :app:assembleDebug --no-daemon
+      - run: ./gradlew :app:assembleRelease --no-daemon
+      - name: apk size budget
+        run: |
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          size=$(stat -c%s "$apk")
+          echo "release APK: $size bytes ($((size / 1024)) KiB)"
+          test "$size" -le 3000000
 
   ios:
     # VGSL (a DivKit dependency) needs the Swift toolchain of Xcode 26

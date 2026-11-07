@@ -30,3 +30,6 @@ and `shell-ios/`.
   port 8000 and `examples.tabs` on port 8001.
 - DivKit APIs are verified against the published artifacts (javap on the Android AAR
   classes, the tagged divkit-ios sources) before use, not written from memory.
+- Shell apps stay near native weight: Android release builds are minified and
+  resource-shrunk, and CI enforces an APK size budget (3 MB). A change that needs
+  a bigger budget is discussed in its PR, never slipped in.

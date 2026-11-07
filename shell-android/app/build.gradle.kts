@@ -19,10 +19,20 @@ android {
         val serverUrl = providers.gradleProperty("serverUrl").getOrElse("http://10.0.2.2:8000")
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The libraries bundle ~80 translations; the shell itself has no strings.
+        resourceConfigurations += listOf("en")
     }
 
     buildFeatures {
         buildConfig = true
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        }
     }
 
     compileOptions {
