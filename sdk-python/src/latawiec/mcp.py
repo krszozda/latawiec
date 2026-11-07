@@ -30,8 +30,18 @@ Components:
   # on_tap: Navigate(screen) | SetVariable(variable, value)
   #       | Submit(action, send=(variable, ...))
 - TextInput(variable, hint=None, initial="")  # declares the variable it binds to
+- Switch(variable, initial=False)  # boolean variable
+- Select(variable, options=("S", Option("Medium", "m")), hint=None, initial="")
+  # options: strings, or Option(label, value) when they differ
+- Slider(variable, min=0, max=100, initial=None, color="#2962FF")  # integer variable
 - Column(*children), Row(*children)
+- Gallery(*children, horizontal=False, spacing=None)  # scrolling list
+- Grid(*children, columns=N)  # fixed columns, row by row
+- Separator(color="#B0BEC5"), Spacer(height=N) or Spacer(width=N)
 - render(component) -> DivKit card dict (what a shell consumes)
+
+Variables bound by controls are hoisted to the card, so any component can read
+them: Text("@{dark}"), Text("Size: @{size}"). Submit sends string variables.
 
 Styling — every component takes style=Style(...):
 - Style(padding, margin, width, height, background, corner_radius, border,
