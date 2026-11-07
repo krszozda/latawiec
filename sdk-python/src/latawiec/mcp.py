@@ -63,6 +63,8 @@ App and server (Latawiec subclasses FastAPI):
     def product(ctx: lt.Context) -> lt.Component:
         return lt.Column(lt.Text(ctx.params["id"]))  # Navigate(f"product/{slug}")
 
+- Builders, action handlers, and the auth check may be sync or `async def`;
+  sync ones run in a threadpool, so blocking calls (a database read) are fine.
 - GET /screens/{name} returns the rendered card JSON; unknown names 404.
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
 - @app.action(name) registers a Submit handler: it gets the submitted values
