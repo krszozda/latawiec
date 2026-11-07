@@ -24,13 +24,14 @@ from latawiec.components import (
     TextInput,
     render,
 )
-from latawiec.server import Grant, Latawiec, Tab, Theme
+from latawiec.server import Context, Grant, Latawiec, Tab, Theme
 
 __all__ = [
     "Action",
     "Button",
     "Column",
     "Component",
+    "Context",
     "Edges",
     "Gallery",
     "Grant",

@@ -118,8 +118,8 @@ def guarded_app() -> lt.Latawiec:
     guarded = lt.Latawiec(login="signin")
 
     @guarded.auth
-    def check(token: str | None) -> bool:
-        return token == "s3cret"
+    def check(token: str | None) -> str | None:
+        return "friend" if token == "s3cret" else None
 
     @guarded.screen("signin", public=True)
     def signin() -> lt.Component:
@@ -141,6 +141,80 @@ def guarded_app() -> lt.Latawiec:
 
 
 BEARER = {"Authorization": "Bearer s3cret"}
+
+
+def test_screen_template_captures_path_params() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("product/{id}")
+    def product(ctx: lt.Context) -> lt.Component:
+        return lt.Column(lt.Text(f"Product {ctx.params['id']}"))
+
+    response = TestClient(routed).get("/screens/product/42")
+
+    assert response.status_code == 200
+    div = response.json()["card"]["states"][0]["div"]
+    assert div["items"][0]["text"] == "Product 42"
+
+
+def test_exact_screen_name_beats_a_template() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("product/{id}")
+    def product(ctx: lt.Context) -> lt.Component:
+        return lt.Column(lt.Text("from template"))
+
+    @routed.screen("product/new")
+    def new() -> lt.Component:
+        return lt.Column(lt.Text("exact"))
+
+    div = TestClient(routed).get("/screens/product/new").json()["card"]["states"][0]["div"]
+    assert div["items"][0]["text"] == "exact"
+
+
+def test_unknown_path_is_404_and_render_screen_resolves_templates() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("product/{id}")
+    def product(ctx: lt.Context) -> lt.Component:
+        return lt.Column(lt.Text(ctx.params["id"]))
+
+    assert TestClient(routed).get("/screens/product/42/extra").status_code == 404
+    card = routed.render_screen("product/7")
+    assert card["card"]["states"][0]["div"]["items"][0]["text"] == "7"
+    assert routed.screen_names == ("product/{id}",)
+
+
+def test_screen_socket_serves_slashed_names() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("product/{id}")
+    def product(ctx: lt.Context) -> lt.Component:
+        return lt.Column(lt.Text(f"ws {ctx.params['id']}"))
+
+    with TestClient(routed).websocket_connect("/ws/screens/product/9") as socket:
+        payload = socket.receive_json()
+    assert payload["card"]["states"][0]["div"]["items"][0]["text"] == "ws 9"
+
+
+def test_builders_and_handlers_receive_the_user() -> None:
+    guarded = guarded_app()
+
+    @guarded.screen("whoami")
+    def whoami(ctx: lt.Context) -> lt.Component:
+        return lt.Column(lt.Text(f"You are {ctx.user}"))
+
+    seen: list[str | None] = []
+
+    @guarded.action("record")
+    def record(values: dict[str, str], ctx: lt.Context) -> None:
+        seen.append(ctx.user)
+
+    client = TestClient(guarded)
+    div = client.get("/screens/whoami", headers=BEARER).json()["card"]["states"][0]["div"]
+    assert div["items"][0]["text"] == "You are friend"
+    client.post("/actions/record", json={}, headers=BEARER)
+    assert seen == ["friend"]
 
 
 def test_guarded_screen_needs_the_right_token() -> None:
