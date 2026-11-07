@@ -47,6 +47,9 @@ import org.json.JSONObject
 private const val TAG = "Latawiec"
 private const val RECONNECT_DELAY_MS = 1_000L
 
+/** The server's WebSocket close code for a missing or rejected token. */
+private const val NOT_AUTHORIZED = 4401
+
 class MainActivity : AppCompatActivity() {
 
     private val http = OkHttpClient()
@@ -59,13 +62,20 @@ class MainActivity : AppCompatActivity() {
     }
     private lateinit var divView: Div2View
     private lateinit var bottomBar: BottomNavigationView
+    private lateinit var tokenStore: TokenStore
     private var socket: WebSocket? = null
+    private var token: String? = null
+
+    /** Screen from the manifest to show when the server answers 401/4401. */
+    private var loginScreen: String? = null
 
     /** Navigation history; the screen on top is the one on display. */
     private val screenStack = ArrayDeque<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        tokenStore = TokenStore(this)
+        token = tokenStore.load()
         val configuration = DivConfiguration.Builder(PicassoDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
             .build()
@@ -113,7 +123,7 @@ class MainActivity : AppCompatActivity() {
         socket?.cancel()
         val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$name"
         socket = http.newWebSocket(
-            Request.Builder().url(url).build(),
+            authorized(Request.Builder().url(url)).build(),
             object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     val data = parseCard(JSONObject(text))
@@ -131,7 +141,12 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (webSocket == socket) reconnect(name)
+                    if (webSocket != socket) return
+                    if (code == NOT_AUTHORIZED) {
+                        divView.post { if (!isDestroyed) onUnauthorized() }
+                    } else {
+                        reconnect(name)
+                    }
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -147,6 +162,23 @@ class MainActivity : AppCompatActivity() {
             { if (!isDestroyed && name == screenStack.lastOrNull()) connect(name) },
             RECONNECT_DELAY_MS,
         )
+    }
+
+    private fun authorized(builder: Request.Builder): Request.Builder {
+        token?.let { builder.header("Authorization", "Bearer $it") }
+        return builder
+    }
+
+    /** A rejected token is gone for good; the login screen starts over. */
+    private fun onUnauthorized() {
+        token = null
+        tokenStore.clear()
+        val login = loginScreen
+        if (login != null) {
+            showRoot(login)
+        } else {
+            Log.w(TAG, "server answered 401 and the manifest names no login screen")
+        }
     }
 
     private fun parseCard(payload: JSONObject): DivData {
@@ -190,6 +222,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyManifest(manifest: JSONObject?) {
+        loginScreen = manifest?.opt("login") as? String
         val tabs = manifest?.optJSONArray("tabs")
         if (tabs == null || tabs.length() == 0) {
             showRoot("home")
@@ -301,10 +334,11 @@ class MainActivity : AppCompatActivity() {
         for (key in url.queryParameterNames) {
             if (key != "action") values.put(key, url.getQueryParameter(key))
         }
-        val request = Request.Builder()
-            .url("$serverUrl/actions/${Uri.encode(action)}")
-            .post(values.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+        val request = authorized(
+            Request.Builder()
+                .url("$serverUrl/actions/${Uri.encode(action)}")
+                .post(values.toString().toRequestBody("application/json".toMediaType())),
+        ).build()
         http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -313,11 +347,22 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onResponse(call: Call, response: Response) {
                     response.use {
+                        if (it.code == 401) {
+                            divView.post { if (!isDestroyed) onUnauthorized() }
+                            return
+                        }
                         if (!it.isSuccessful) {
                             Log.w(TAG, "action $action answered HTTP ${it.code}")
                             return
                         }
-                        val navigate = JSONObject(it.body?.string() ?: return).opt("navigate")
+                        val body = JSONObject(it.body?.string() ?: return)
+                        // A sign-in action grants the token every later
+                        // request authenticates with.
+                        (body.opt("token") as? String)?.let { granted ->
+                            token = granted
+                            tokenStore.save(granted)
+                        }
+                        val navigate = body.opt("navigate")
                         if (navigate is String) {
                             divView.post { if (!isDestroyed) showScreen(navigate) }
                         }
