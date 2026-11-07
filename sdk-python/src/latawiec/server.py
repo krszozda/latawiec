@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 
 from latawiec.components import Component, Navigate, render
 
@@ -14,16 +16,46 @@ ActionHandler = Callable[[dict[str, str]], Navigate | None]
 NO_SUCH_SCREEN = 4404
 
 
+@dataclass(frozen=True)
+class Tab:
+    """One destination of the shells' native bottom bar."""
+
+    screen: str
+    title: str
+    icon: str | None = None
+    """Image path the shell resolves against the server, e.g. "/assets/home.png"."""
+
+
+@dataclass(frozen=True)
+class Theme:
+    """Colors the shells apply to their native chrome."""
+
+    accent: str = "#2962FF"
+
+
 class Latawiec(FastAPI):
     """An ASGI app that serves Latawiec screens; run it like any FastAPI app."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *,
+        tabs: Sequence[Tab] = (),
+        theme: Theme | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
+        self.tabs = tuple(tabs)
+        self.theme = theme or Theme()
         self._screens: dict[str, ScreenBuilder] = {}
         self._actions: dict[str, ActionHandler] = {}
+        self.add_api_route("/manifest", self._manifest)
         self.add_api_route("/screens/{name}", self._screen_payload)
         self.add_api_route("/actions/{name}", self._action_result, methods=["POST"])
         self.add_api_websocket_route("/ws/screens/{name}", self._screen_socket)
+
+    def assets(self, directory: str) -> None:
+        """Serve a directory of static files (tab icons, images) under /assets."""
+        self.mount("/assets", StaticFiles(directory=directory), name="assets")
 
     def screen(self, name: str) -> Callable[[ScreenBuilder], ScreenBuilder]:
         def register(builder: ScreenBuilder) -> ScreenBuilder:
@@ -51,6 +83,15 @@ class Latawiec(FastAPI):
         if builder is None:
             raise KeyError(f"no screen named {name!r}")
         return render(builder())
+
+    async def _manifest(self) -> dict[str, Any]:
+        """App-level chrome the shells read once at startup: tabs and theme."""
+        return {
+            "tabs": [
+                {"screen": tab.screen, "title": tab.title, "icon": tab.icon} for tab in self.tabs
+            ],
+            "theme": {"accent": self.theme.accent},
+        }
 
     async def _screen_payload(self, name: str) -> dict[str, Any]:
         try:
