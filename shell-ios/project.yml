@@ -19,10 +19,14 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.krszozda.latawiec.shell
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
+        # A store build overrides this on the xcodebuild command line and the
+        # Info.plist below bakes it in; empty means the dev fallback chain.
+        LATAWIEC_SERVER_URL: ""
     info:
       path: Info.plist
       properties:
         UILaunchScreen: {}
+        LatawiecServerURL: $(LATAWIEC_SERVER_URL)
         NSAppTransportSecurity:
           # The dev loop talks plain http/ws to a local server; anything
           # beyond the local network must use TLS.
