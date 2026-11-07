@@ -35,4 +35,23 @@ def greeter() -> lt.Component:
         lt.TextInput("name", hint="Your name"),
         lt.Text("Hello, @{name}!", size=20),
         lt.Button("Clear", on_tap=lt.SetVariable("name", "")),
+        lt.Button("Greet", on_tap=lt.Submit("greet", send=("name",))),
+    )
+
+
+greeted: list[str] = []
+
+
+@app.action("greet")
+def greet(values: dict[str, str]) -> lt.Navigate:
+    greeted.append(values.get("name", ""))
+    return lt.Navigate("thanks")
+
+
+@app.screen("thanks")
+def thanks() -> lt.Component:
+    last = greeted[-1] if greeted else "nobody"
+    return lt.Column(
+        lt.Text("Thanks!", size=28),
+        lt.Text(f"The server greeted {last}."),
     )

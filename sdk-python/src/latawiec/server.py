@@ -5,9 +5,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
-from latawiec.components import Component, render
+from latawiec.components import Component, Navigate, render
 
 ScreenBuilder = Callable[[], Component]
+ActionHandler = Callable[[dict[str, str]], Navigate | None]
 
 # WebSocket close code in the app-defined 4000-4999 range, echoing HTTP 404.
 NO_SUCH_SCREEN = 4404
@@ -19,13 +20,24 @@ class Latawiec(FastAPI):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._screens: dict[str, ScreenBuilder] = {}
+        self._actions: dict[str, ActionHandler] = {}
         self.add_api_route("/screens/{name}", self._screen_payload)
+        self.add_api_route("/actions/{name}", self._action_result, methods=["POST"])
         self.add_api_websocket_route("/ws/screens/{name}", self._screen_socket)
 
     def screen(self, name: str) -> Callable[[ScreenBuilder], ScreenBuilder]:
         def register(builder: ScreenBuilder) -> ScreenBuilder:
             self._screens[name] = builder
             return builder
+
+        return register
+
+    def action(self, name: str) -> Callable[[ActionHandler], ActionHandler]:
+        """Register the handler that a Submit(name, ...) button posts to."""
+
+        def register(handler: ActionHandler) -> ActionHandler:
+            self._actions[name] = handler
+            return handler
 
         return register
 
@@ -45,6 +57,13 @@ class Latawiec(FastAPI):
             return self.render_screen(name)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"no screen named {name!r}") from None
+
+    async def _action_result(self, name: str, values: dict[str, str]) -> dict[str, str | None]:
+        handler = self._actions.get(name)
+        if handler is None:
+            raise HTTPException(status_code=404, detail=f"no action named {name!r}")
+        result = handler(values)
+        return {"navigate": result.screen if result else None}
 
     async def _screen_socket(self, websocket: WebSocket, name: str) -> None:
         """Send the screen once, then hold the socket open.

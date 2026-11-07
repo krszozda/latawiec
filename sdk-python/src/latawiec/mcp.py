@@ -25,6 +25,7 @@ Components:
 - Text(text, size=None)  # text may use DivKit expressions: Text("Hello, @{name}!")
 - Image(url)
 - Button(label, on_tap=...)  # on_tap: Navigate(screen) | SetVariable(variable, value)
+                             #       | Submit(action, send=(variable, ...))
 - TextInput(variable, hint=None, initial="")  # declares the variable it binds to
 - Column(*children), Row(*children)
 - render(component) -> DivKit card dict (what a shell consumes)
@@ -40,6 +41,8 @@ App and server (Latawiec subclasses FastAPI):
 
 - GET /screens/{name} returns the rendered card JSON; unknown names 404.
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
+- @app.action(name) registers a Submit handler: it gets the submitted values
+  as dict[str, str] and may return Navigate to send the shell onward.
 
 Dev loop: `uvicorn module:app --host 0.0.0.0 --reload` — the Android shell
 reconnects on every save and live-reloads the screen. System back walks the
