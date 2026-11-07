@@ -24,7 +24,7 @@ from latawiec.components import (
     TextInput,
     render,
 )
-from latawiec.server import Latawiec, Tab, Theme
+from latawiec.server import Grant, Latawiec, Tab, Theme
 
 __all__ = [
     "Action",
@@ -33,6 +33,7 @@ __all__ = [
     "Component",
     "Edges",
     "Gallery",
+    "Grant",
     "Grid",
     "Image",
     "Latawiec",

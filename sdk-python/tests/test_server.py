@@ -79,7 +79,7 @@ def test_manifest_defaults_to_no_tabs_and_default_theme() -> None:
     response = client.get("/manifest")
 
     assert response.status_code == 200
-    assert response.json() == {"tabs": [], "theme": {"accent": "#2962FF"}}
+    assert response.json() == {"tabs": [], "theme": {"accent": "#2962FF"}, "login": None}
 
 
 def test_manifest_lists_tabs_and_theme() -> None:
@@ -99,6 +99,7 @@ def test_manifest_lists_tabs_and_theme() -> None:
             {"screen": "cart", "title": "Cart", "icon": None},
         ],
         "theme": {"accent": "#00695C"},
+        "login": None,
     }
 
 
@@ -111,3 +112,89 @@ def test_assets_serves_files_from_the_mounted_directory(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.content == b"not really a png"
+
+
+def guarded_app() -> lt.Latawiec:
+    guarded = lt.Latawiec(login="signin")
+
+    @guarded.auth
+    def check(token: str | None) -> bool:
+        return token == "s3cret"
+
+    @guarded.screen("signin", public=True)
+    def signin() -> lt.Component:
+        return lt.Column(lt.TextInput("code"))
+
+    @guarded.screen("home")
+    def home() -> lt.Component:
+        return lt.Column(lt.Text("Hello"))
+
+    @guarded.action("sign-in", public=True)
+    def sign_in(values: dict[str, str]) -> lt.Grant:
+        return lt.Grant(token="s3cret", screen="home")
+
+    @guarded.action("buy")
+    def buy(values: dict[str, str]) -> None:
+        return None
+
+    return guarded
+
+
+BEARER = {"Authorization": "Bearer s3cret"}
+
+
+def test_guarded_screen_needs_the_right_token() -> None:
+    guarded = TestClient(guarded_app())
+
+    assert guarded.get("/screens/home").status_code == 401
+    wrong = {"Authorization": "Bearer nope"}
+    assert guarded.get("/screens/home", headers=wrong).status_code == 401
+    basic = {"Authorization": "Basic s3cret"}
+    assert guarded.get("/screens/home", headers=basic).status_code == 401
+    assert guarded.get("/screens/home", headers=BEARER).status_code == 200
+
+
+def test_public_screen_and_manifest_stay_open() -> None:
+    guarded = TestClient(guarded_app())
+
+    assert guarded.get("/screens/signin").status_code == 200
+    manifest = guarded.get("/manifest")
+    assert manifest.status_code == 200
+    assert manifest.json()["login"] == "signin"
+
+
+def test_guarded_action_needs_the_token() -> None:
+    guarded = TestClient(guarded_app())
+
+    assert guarded.post("/actions/buy", json={}).status_code == 401
+    assert guarded.post("/actions/buy", json={}, headers=BEARER).status_code == 200
+
+
+def test_sign_in_action_answers_with_a_grant() -> None:
+    guarded = TestClient(guarded_app())
+
+    response = guarded.post("/actions/sign-in", json={"code": "kite"})
+
+    assert response.status_code == 200
+    assert response.json() == {"navigate": "home", "token": "s3cret"}
+
+
+def test_guarded_socket_closes_with_4401() -> None:
+    guarded = TestClient(guarded_app())
+
+    with guarded.websocket_connect("/ws/screens/home") as socket:
+        message = socket.receive()
+    assert message["type"] == "websocket.close"
+    assert message["code"] == 4401
+
+    with guarded.websocket_connect("/ws/screens/home", headers=BEARER) as socket:
+        payload = socket.receive_json()
+    assert payload["card"]["states"][0]["div"]["items"][0]["text"] == "Hello"
+
+
+def test_public_socket_needs_no_token() -> None:
+    guarded = TestClient(guarded_app())
+
+    with guarded.websocket_connect("/ws/screens/signin") as socket:
+        payload = socket.receive_json()
+    assert payload["card"]["states"][0]["div"]["items"][0]["type"] == "input"
