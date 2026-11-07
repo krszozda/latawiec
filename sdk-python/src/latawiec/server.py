@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from dataclasses import dataclass, field
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
@@ -178,9 +178,10 @@ class Latawiec(FastAPI):
         template, params = resolved
         builder, wants_context = self._screens[template]
         args = (Context(params=params),) if wants_context else ()
-        if inspect.iscoroutinefunction(builder):
-            return render(asyncio.run(builder(*args)))
-        return render(builder(*args))
+        component = builder(*args)
+        if not isinstance(component, Component):
+            component = asyncio.run(cast("Coroutine[Any, Any, Component]", component))
+        return render(component)
 
     def _resolve(self, name: str) -> tuple[str, dict[str, str]] | None:
         """Match a requested path to a registered name; exact names win."""
