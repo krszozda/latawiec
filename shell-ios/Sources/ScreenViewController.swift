@@ -20,6 +20,7 @@ final class ScreenViewController: UIViewController {
         urlHandler: DivUrlHandlerDelegate { [weak self] url in self?.handle(url) }
     )
     private lazy var divView = DivView(divKitComponents: components)
+    private let spinner = UIActivityIndicatorView(style: .large)
     private var socket: URLSessionWebSocketTask?
     private var reconnectDelay: TimeInterval = 1
 
@@ -47,6 +48,13 @@ final class ScreenViewController: UIViewController {
             divView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             divView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
+        view.addSubview(spinner)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+        spinner.startAnimating()
         if Server.dev {
             connect()
         } else {
@@ -54,11 +62,27 @@ final class ScreenViewController: UIViewController {
         }
     }
 
+    /// The user acted and nothing happened; say so instead of only logging.
+    private func showError(_ message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func retryFetch() {
+        let delay = reconnectDelay
+        reconnectDelay = min(delay * 2, 30)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.fetchScreen()
+        }
+    }
+
     /// Production path: render the last-known screen from disk right away,
     /// then revalidate over GET and swap in the fresh payload — unless the
     /// cached copy is "static", which lives until the manifest version moves.
     private func fetchScreen() {
-        if let cached = ScreenCache.shared.load(screen) {
+        let cached = ScreenCache.shared.load(screen)
+        if let cached {
             show(data: cached.payload)
             if cached.policy == "static" { return }
         }
@@ -66,11 +90,14 @@ final class ScreenViewController: UIViewController {
         guard let url = URL(string: "\(Server.url)/screens/\(path)") else { return }
         var request = URLRequest(url: url)
         Auth.authorize(&request)
+        let hadCache = cached != nil
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             if let error {
-                // With a cached copy on screen this is offline mode.
+                // With a cached copy on screen this is offline mode; a blank
+                // screen keeps retrying on the socket's backoff.
                 log.warning("screen \(self.screen) fetch failed: \(String(describing: error))")
+                if !hadCache { DispatchQueue.main.async { self.retryFetch() } }
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -80,8 +107,10 @@ final class ScreenViewController: UIViewController {
             }
             guard status == 200, let data else {
                 log.warning("screen \(self.screen) answered HTTP \(status)")
+                if !hadCache { DispatchQueue.main.async { self.retryFetch() } }
                 return
             }
+            self.reconnectDelay = 1
             let header = (response as? HTTPURLResponse)?
                 .value(forHTTPHeaderField: "Cache-Control") ?? ""
             let policy = header.contains("no-store") ? "no-store"
@@ -99,6 +128,7 @@ final class ScreenViewController: UIViewController {
                 DivViewSource(kind: .data(data), cardId: DivCardID(rawValue: screen)),
                 shouldResetPreviousCardData: true
             )
+            spinner.stopAnimating()
         }
     }
 
@@ -191,6 +221,7 @@ final class ScreenViewController: UIViewController {
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error {
                 log.warning("action \(action) failed: \(String(describing: error))")
+                DispatchQueue.main.async { self?.showError("No connection — try again") }
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -200,6 +231,9 @@ final class ScreenViewController: UIViewController {
             }
             guard status == 200, let data else {
                 log.warning("action \(action) answered HTTP \(status)")
+                DispatchQueue.main.async {
+                    self?.showError("Something went wrong — try again")
+                }
                 return
             }
             guard let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
