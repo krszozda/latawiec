@@ -18,6 +18,7 @@ android {
         // Emulator loopback to a `uvicorn` on the host; override with -PserverUrl=http://...
         val serverUrl = providers.gradleProperty("serverUrl").getOrElse("http://10.0.2.2:8000")
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -42,4 +43,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.yandex.div:div:32.6.0")
     implementation("com.yandex.div:picasso:32.6.0")
+
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }

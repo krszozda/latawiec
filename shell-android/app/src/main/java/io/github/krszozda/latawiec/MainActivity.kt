@@ -50,6 +50,13 @@ private const val RECONNECT_DELAY_MS = 1_000L
 class MainActivity : AppCompatActivity() {
 
     private val http = OkHttpClient()
+
+    // Instrumentation tests point the shell at a per-test server. Debug-only:
+    // the activity is exported, so in a release build any app could repoint
+    // the shell at its own server with this extra.
+    private val serverUrl by lazy {
+        intent.getStringExtra("serverUrl").takeIf { BuildConfig.DEBUG } ?: BuildConfig.SERVER_URL
+    }
     private lateinit var divView: Div2View
     private lateinit var bottomBar: BottomNavigationView
     private var socket: WebSocket? = null
@@ -104,7 +111,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun connect(name: String) {
         socket?.cancel()
-        val url = "${BuildConfig.SERVER_URL.replaceFirst("http", "ws")}/ws/screens/$name"
+        val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$name"
         socket = http.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
@@ -154,7 +161,7 @@ class MainActivity : AppCompatActivity() {
      * on "home".
      */
     private fun fetchManifest() {
-        val request = Request.Builder().url("${BuildConfig.SERVER_URL}/manifest").build()
+        val request = Request.Builder().url("$serverUrl/manifest").build()
         http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -241,7 +248,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadIcon(path: String, item: MenuItem) {
-        val request = Request.Builder().url(BuildConfig.SERVER_URL + path).build()
+        val request = Request.Builder().url(serverUrl + path).build()
         http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -295,7 +302,7 @@ class MainActivity : AppCompatActivity() {
             if (key != "action") values.put(key, url.getQueryParameter(key))
         }
         val request = Request.Builder()
-            .url("${BuildConfig.SERVER_URL}/actions/${Uri.encode(action)}")
+            .url("$serverUrl/actions/${Uri.encode(action)}")
             .post(values.toString().toRequestBody("application/json".toMediaType()))
             .build()
         http.newCall(request).enqueue(

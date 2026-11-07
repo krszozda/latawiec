@@ -13,7 +13,7 @@ app = lt.Latawiec()
 @app.screen("home")
 def home() -> lt.Component:
     return lt.Column(
-        lt.Text("Hello from Python", size=28),
+        lt.Text("Hello from Python", size=28, style=lt.Style(margin=lt.Edges(top=48))),
         lt.Text("This screen was rendered natively by DivKit."),
         lt.Button("Checkout", on_tap=lt.Navigate("checkout")),
         lt.Button("Greeter", on_tap=lt.Navigate("greeter")),
