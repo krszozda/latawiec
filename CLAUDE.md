@@ -26,8 +26,8 @@ and `shell-ios/`.
   -project LatawiecShell.xcodeproj -scheme LatawiecShell -destination
   'generic/platform=iOS Simulator' build` in `shell-ios/`. The UI tests
   (`xcodebuild test` on a booted simulator; `connectedDebugAndroidTest` on a
-  running emulator) need two servers from `sdk-python/`: `examples.hello` on
-  port 8000 and `examples.tabs` on port 8001.
+  running emulator) need three servers from `sdk-python/`: `examples.hello` on
+  port 8000, `examples.tabs` on port 8001, and `examples.auth` on port 8002.
 - DivKit APIs are verified against the published artifacts (javap on the Android AAR
   classes, the tagged divkit-ios sources) before use, not written from memory.
 - Shell apps stay near native weight: Android release builds are minified and
