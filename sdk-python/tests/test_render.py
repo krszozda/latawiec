@@ -59,6 +59,18 @@ def test_navigate_percent_encodes_screen_name() -> None:
     assert action["url"] == "latawiec://navigate?screen=a%26b%20c"
 
 
+def test_submit_sends_variables_as_tap_time_expressions() -> None:
+    card = lt.render(lt.Button("Send", on_tap=lt.Submit("sign up", send=("name", "email"))))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "submit:sign up",
+        "url": (
+            "latawiec://submit?action=sign%20up&name=@{encodeUri(name)}&email=@{encodeUri(email)}"
+        ),
+    }
+
+
 def test_text_input_binds_a_card_level_variable() -> None:
     card = lt.render(lt.TextInput("name", hint="Your name", initial="kite"))
 

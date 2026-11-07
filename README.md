@@ -34,9 +34,8 @@ reconnects over WebSocket and renders the fresh screen — no rebuild, no reinst
 Early development, built in public. Working today: a small Python DSL (text, image,
 column/row, buttons, text inputs with on-device variables), a FastAPI server that exposes
 screens as DivKit card JSON, and an Android shell that renders screens from that server
-with live reload and real navigation — a server-defined button opens the next screen,
-system back returns. Not working yet: the iOS shell, sending form values back to the
-server.
+with live reload, real navigation, and forms — a Submit button POSTs the screen's values
+to a Python handler, which answers with where to go next. Not working yet: the iOS shell.
 
 ## How it will work
 

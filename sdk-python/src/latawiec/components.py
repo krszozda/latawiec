@@ -62,7 +62,27 @@ class SetVariable:
         )
 
 
-Action = Navigate | SetVariable
+@dataclass(frozen=True)
+class Submit:
+    """Tap action: POST the named screen variables to a server action handler.
+
+    Variable values travel inside the action URL as @{encodeUri(...)}
+    expressions, which DivKit evaluates at tap time — the shell only parses
+    query parameters and never reads variables itself.
+    """
+
+    action: str
+    send: tuple[str, ...]
+
+    def to_div_action(self) -> dv.DivAction:
+        query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
+        return dv.DivAction(
+            log_id=f"submit:{self.action}",
+            url=f"latawiec://submit?action={quote(self.action, safe='')}{query}",
+        )
+
+
+Action = Navigate | SetVariable | Submit
 
 
 @dataclass(frozen=True)

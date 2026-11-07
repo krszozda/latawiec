@@ -1,5 +1,6 @@
 package io.github.krszozda.latawiec
 
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -18,8 +19,13 @@ import com.yandex.div.json.expressions.ExpressionResolver
 import com.yandex.div.picasso.PicassoDivImageLoader
 import com.yandex.div2.DivAction
 import com.yandex.div2.DivData
+import java.io.IOException
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -40,7 +46,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val configuration = DivConfiguration.Builder(PicassoDivImageLoader(this))
-            .actionHandler(NavigateActionHandler())
+            .actionHandler(LatawiecActionHandler())
             .build()
         divView = Div2View(Div2Context(this, configuration))
         setContentView(divView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -123,21 +129,71 @@ class MainActivity : AppCompatActivity() {
         return DivData(environment, payload.getJSONObject("card"))
     }
 
-    private inner class NavigateActionHandler : DivActionHandler() {
+    private fun showScreen(name: String) {
+        // A double-tap would stack the same screen twice and break back.
+        if (name != screenStack.lastOrNull()) {
+            screenStack.addLast(name)
+            connect(name)
+        }
+    }
+
+    /**
+     * POSTs the submitted values to the server's action handler and follows the
+     * navigation it answers with. The values arrive in the action URL's query:
+     * the server wrote them there as DivKit expressions, evaluated at tap time.
+     */
+    private fun submit(action: String, url: Uri) {
+        val values = JSONObject()
+        for (key in url.queryParameterNames) {
+            if (key != "action") values.put(key, url.getQueryParameter(key))
+        }
+        val request = Request.Builder()
+            .url("${BuildConfig.SERVER_URL}/actions/${Uri.encode(action)}")
+            .post(values.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        http.newCall(request).enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    Log.w(TAG, "action $action failed: $e")
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (!it.isSuccessful) {
+                            Log.w(TAG, "action $action answered HTTP ${it.code}")
+                            return
+                        }
+                        val navigate = JSONObject(it.body?.string() ?: return).opt("navigate")
+                        if (navigate is String) {
+                            divView.post { if (!isDestroyed) showScreen(navigate) }
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    private inner class LatawiecActionHandler : DivActionHandler() {
         override fun handleAction(
             action: DivAction,
             view: DivViewFacade,
             resolver: ExpressionResolver,
         ): Boolean {
             val url = action.url?.evaluate(resolver)
-            if (url != null && url.scheme == "latawiec" && url.host == "navigate") {
-                val screen = url.getQueryParameter("screen") ?: return false
-                // A double-tap would stack the same screen twice and break back.
-                if (screen != screenStack.lastOrNull()) {
-                    screenStack.addLast(screen)
-                    connect(screen)
+            if (url != null && url.scheme == "latawiec") {
+                when (url.host) {
+                    "navigate" -> {
+                        val screen = url.getQueryParameter("screen") ?: return false
+                        showScreen(screen)
+                        return true
+                    }
+
+                    "submit" -> {
+                        val name = url.getQueryParameter("action") ?: return false
+                        submit(name, url)
+                        return true
+                    }
                 }
-                return true
             }
             return super.handleAction(action, view, resolver)
         }
