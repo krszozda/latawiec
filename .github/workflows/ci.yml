@@ -34,7 +34,9 @@ jobs:
       - run: ./gradlew :app:assembleDebug --no-daemon
 
   ios:
-    runs-on: macos-15
+    # VGSL (a DivKit dependency) needs the Swift toolchain of Xcode 26
+    # (SendableMetatype), which the macos-15 image does not carry.
+    runs-on: macos-26
     defaults:
       run:
         working-directory: shell-ios
