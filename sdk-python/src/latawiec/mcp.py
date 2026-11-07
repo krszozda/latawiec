@@ -22,13 +22,23 @@ Latawiec: write native mobile screens in Python; a thin native shell renders the
 with DivKit. Package `latawiec` on PyPI.
 
 Components:
-- Text(text, size=None)  # text may use DivKit expressions: Text("Hello, @{name}!")
+- Text(text, size=None, color=None, weight=None, align=None, line_height=None)
+  # text may use DivKit expressions: Text("Hello, @{name}!"); weight: "light" |
+  # "regular" | "medium" | "bold"; align: "left" | "center" | "right"
 - Image(url)
-- Button(label, on_tap=...)  # on_tap: Navigate(screen) | SetVariable(variable, value)
-                             #       | Submit(action, send=(variable, ...))
+- Button(label, on_tap=..., color="#2962FF", text_color="#FFFFFF")
+  # on_tap: Navigate(screen) | SetVariable(variable, value)
+  #       | Submit(action, send=(variable, ...))
 - TextInput(variable, hint=None, initial="")  # declares the variable it binds to
 - Column(*children), Row(*children)
 - render(component) -> DivKit card dict (what a shell consumes)
+
+Styling — every component takes style=Style(...):
+- Style(padding, margin, width, height, background, corner_radius, border,
+  align, align_vertical, alpha)
+- padding/margin: int for all sides, or Edges(top, right, bottom, left)
+- width/height: dp as int, or "fill" / "wrap"
+- background/border: "#RRGGBB" color; align places the component in its parent
 
 App and server (Latawiec subclasses FastAPI):
     import latawiec as lt

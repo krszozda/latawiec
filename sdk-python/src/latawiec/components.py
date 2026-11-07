@@ -2,33 +2,139 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 from urllib.parse import quote
 
 import pydivkit as dv
+
+Size = int | Literal["fill", "wrap"]
+HorizontalAlign = Literal["left", "center", "right"]
+VerticalAlign = Literal["top", "center", "bottom"]
+FontWeight = Literal["light", "regular", "medium", "bold"]
+
+
+@dataclass(frozen=True)
+class Edges:
+    """Per-side spacing, for when a single number is not enough."""
+
+    top: int = 0
+    right: int = 0
+    bottom: int = 0
+    left: int = 0
+
+
+def _insets(spec: int | Edges) -> dv.DivEdgeInsets:
+    if isinstance(spec, int):
+        spec = Edges(top=spec, right=spec, bottom=spec, left=spec)
+    return dv.DivEdgeInsets(top=spec.top, right=spec.right, bottom=spec.bottom, left=spec.left)
+
+
+def _size(spec: Size) -> dv.DivSize:
+    if isinstance(spec, int):
+        return dv.DivFixedSize(value=spec)
+    return dv.DivMatchParentSize() if spec == "fill" else dv.DivWrapContentSize()
+
+
+@dataclass(frozen=True)
+class Style:
+    """Visual options every component accepts; unset fields keep the component's own look.
+
+    Sizes and spacing are in density-independent pixels; "fill" and "wrap"
+    match the parent and the content. `align` places the component inside
+    its parent (it does not align text — Text has its own `align`), and has
+    a visible effect only with width="wrap" or a fixed width: DivKit sizes
+    elements to the parent's width by default.
+    """
+
+    padding: int | Edges | None = None
+    margin: int | Edges | None = None
+    width: Size | None = None
+    height: Size | None = None
+    background: str | None = None
+    corner_radius: int | None = None
+    border: str | None = None
+    align: HorizontalAlign | None = None
+    align_vertical: VerticalAlign | None = None
+    alpha: float | None = None
+
+    def apply(self, div: dv.Div) -> dv.Div:
+        if self.padding is not None:
+            div.paddings = _insets(self.padding)
+        if self.margin is not None:
+            div.margins = _insets(self.margin)
+        if self.width is not None:
+            div.width = _size(self.width)
+        if self.height is not None:
+            div.height = _size(self.height)
+        if self.background is not None:
+            div.background = [dv.DivSolidBackground(color=self.background)]
+        if self.corner_radius is not None or self.border is not None:
+            # Merge with the border the component built (e.g. Button's radius,
+            # TextInput's stroke), so setting one half keeps the other.
+            current = div.border
+            div.border = dv.DivBorder(
+                corner_radius=(
+                    self.corner_radius
+                    if self.corner_radius is not None
+                    else (current.corner_radius if current else None)
+                ),
+                stroke=(
+                    dv.DivStroke(color=self.border)
+                    if self.border
+                    else (current.stroke if current else None)
+                ),
+            )
+        if self.align is not None:
+            div.alignment_horizontal = dv.DivAlignmentHorizontal(self.align)
+        if self.align_vertical is not None:
+            div.alignment_vertical = dv.DivAlignmentVertical(self.align_vertical)
+        if self.alpha is not None:
+            div.alpha = self.alpha
+        return div
 
 
 class Component(ABC):
     """A node of the UI tree."""
 
+    style: Style | None = None
+
     @abstractmethod
-    def to_div(self) -> dv.Div: ...
+    def _build(self) -> dv.Div: ...
+
+    def to_div(self) -> dv.Div:
+        div = self._build()
+        return self.style.apply(div) if self.style else div
 
 
 @dataclass(frozen=True)
 class Text(Component):
     text: str
     size: int | None = None
+    color: str | None = None
+    weight: FontWeight | None = None
+    align: HorizontalAlign | None = None
+    line_height: int | None = None
+    style: Style | None = None
 
-    def to_div(self) -> dv.Div:
-        return dv.DivText(text=self.text, font_size=self.size)
+    def _build(self) -> dv.Div:
+        return dv.DivText(
+            text=self.text,
+            font_size=self.size,
+            text_color=self.color,
+            font_weight=dv.DivFontWeight(self.weight) if self.weight else None,
+            text_alignment_horizontal=(
+                dv.DivAlignmentHorizontal(self.align) if self.align else None
+            ),
+            line_height=self.line_height,
+        )
 
 
 @dataclass(frozen=True)
 class Image(Component):
     url: str
+    style: Style | None = None
 
-    def to_div(self) -> dv.Div:
+    def _build(self) -> dv.Div:
         return dv.DivImage(image_url=self.url)
 
 
@@ -96,8 +202,9 @@ class TextInput(Component):
     variable: str
     hint: str | None = None
     initial: str = ""
+    style: Style | None = None
 
-    def to_div(self) -> dv.Div:
+    def _build(self) -> dv.Div:
         return dv.DivInput(
             text_variable=self.variable,
             hint_text=self.hint,
@@ -115,14 +222,17 @@ class Button(Component):
 
     label: str
     on_tap: Action
+    color: str = "#2962FF"
+    text_color: str = "#FFFFFF"
+    style: Style | None = None
 
-    def to_div(self) -> dv.Div:
+    def _build(self) -> dv.Div:
         return dv.DivText(
             text=self.label,
             text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
-            text_color="#FFFFFF",
+            text_color=self.text_color,
             paddings=dv.DivEdgeInsets(top=12, bottom=12, left=20, right=20),
-            background=[dv.DivSolidBackground(color="#2962FF")],
+            background=[dv.DivSolidBackground(color=self.color)],
             border=dv.DivBorder(corner_radius=8),
             actions=[self.on_tap.to_div_action()],
         )
@@ -131,10 +241,11 @@ class Button(Component):
 class _Container(Component):
     _orientation: ClassVar[dv.DivContainerOrientation]
 
-    def __init__(self, *children: Component) -> None:
+    def __init__(self, *children: Component, style: Style | None = None) -> None:
         self.children = children
+        self.style = style
 
-    def to_div(self) -> dv.Div:
+    def _build(self) -> dv.Div:
         return dv.DivContainer(
             orientation=self._orientation,
             items=[child.to_div() for child in self.children],
