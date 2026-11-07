@@ -1,12 +1,24 @@
 package io.github.krszozda.latawiec
 
+import android.content.res.ColorStateList
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ShapeDrawable
+import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.yandex.div.DivDataTag
 import com.yandex.div.core.Div2Context
 import com.yandex.div.core.DivActionHandler
@@ -29,6 +41,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONException
 import org.json.JSONObject
 
 private const val TAG = "Latawiec"
@@ -38,6 +51,7 @@ class MainActivity : AppCompatActivity() {
 
     private val http = OkHttpClient()
     private lateinit var divView: Div2View
+    private lateinit var bottomBar: BottomNavigationView
     private var socket: WebSocket? = null
 
     /** Navigation history; the screen on top is the one on display. */
@@ -49,7 +63,13 @@ class MainActivity : AppCompatActivity() {
             .actionHandler(LatawiecActionHandler())
             .build()
         divView = Div2View(Div2Context(this, configuration))
-        setContentView(divView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(divView, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(bottomBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        }
+        setContentView(root, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -65,8 +85,7 @@ class MainActivity : AppCompatActivity() {
             },
         )
 
-        screenStack.addLast("home")
-        connect("home")
+        fetchManifest()
     }
 
     override fun onDestroy() {
@@ -127,6 +146,134 @@ class MainActivity : AppCompatActivity() {
         val environment = DivParsingEnvironment(ParsingErrorLogger.LOG)
         payload.optJSONObject("templates")?.let(environment::parseTemplates)
         return DivData(environment, payload.getJSONObject("card"))
+    }
+
+    /**
+     * Tabs and theme come from the manifest. A server without the endpoint (or
+     * any fetch or parse failure) falls back to the bare single-screen shell
+     * on "home".
+     */
+    private fun fetchManifest() {
+        val request = Request.Builder().url("${BuildConfig.SERVER_URL}/manifest").build()
+        http.newCall(request).enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    Log.w(TAG, "manifest fetch failed: $e")
+                    divView.post { if (!isDestroyed) showRoot("home") }
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    val manifest = response.use {
+                        if (it.isSuccessful) {
+                            try {
+                                JSONObject(it.body?.string() ?: "")
+                            } catch (e: JSONException) {
+                                Log.w(TAG, "manifest is not valid JSON: $e")
+                                null
+                            }
+                        } else {
+                            Log.w(TAG, "manifest answered HTTP ${it.code}")
+                            null
+                        }
+                    }
+                    divView.post { if (!isDestroyed) applyManifest(manifest) }
+                }
+            },
+        )
+    }
+
+    private fun applyManifest(manifest: JSONObject?) {
+        val tabs = manifest?.optJSONArray("tabs")
+        if (tabs == null || tabs.length() == 0) {
+            showRoot("home")
+            return
+        }
+        val screens = ArrayList<String>(tabs.length())
+        try {
+            for (i in 0 until tabs.length()) {
+                val tab = tabs.getJSONObject(i)
+                screens.add(tab.getString("screen"))
+                val item = bottomBar.menu.add(Menu.NONE, i, i, tab.getString("title"))
+                item.icon = placeholderIcon()
+                if (!tab.isNull("icon")) loadIcon(tab.getString("icon"), item)
+            }
+        } catch (e: JSONException) {
+            Log.w(TAG, "manifest tabs are malformed: $e")
+            bottomBar.menu.clear()
+            showRoot("home")
+            return
+        }
+        val accent = manifest.optJSONObject("theme")?.optString("accent").orEmpty()
+        if (accent.isNotEmpty()) tintBar(accent)
+        bottomBar.selectedItemId = 0
+        bottomBar.setOnItemSelectedListener { item ->
+            showRoot(screens[item.itemId])
+            true
+        }
+        // Without this, Material routes a re-tap of the selected item to the
+        // selected listener, which would reset the tab.
+        bottomBar.setOnItemReselectedListener {}
+        bottomBar.visibility = View.VISIBLE
+        showRoot(screens[0])
+    }
+
+    private fun tintBar(accent: String) {
+        val color = try {
+            Color.parseColor(accent)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "theme accent $accent is not a color")
+            return
+        }
+        val tint = ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(color, Color.GRAY),
+        )
+        bottomBar.itemIconTintList = tint
+        bottomBar.itemTextColor = tint
+    }
+
+    // A menu item without an icon leaves a hole in the bar, so a tab with no
+    // manifest icon gets a plain circle the item tint colors like the rest.
+    private fun placeholderIcon() = ShapeDrawable(OvalShape()).apply {
+        val size = (24 * resources.displayMetrics.density).toInt()
+        intrinsicWidth = size
+        intrinsicHeight = size
+    }
+
+    private fun loadIcon(path: String, item: MenuItem) {
+        val request = Request.Builder().url(BuildConfig.SERVER_URL + path).build()
+        http.newCall(request).enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    Log.w(TAG, "icon $path failed: $e")
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (!it.isSuccessful) {
+                            Log.w(TAG, "icon $path answered HTTP ${it.code}")
+                            return
+                        }
+                        val bytes = it.body?.bytes() ?: return
+                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bitmap == null) {
+                            Log.w(TAG, "icon $path did not decode as an image")
+                            return
+                        }
+                        divView.post {
+                            if (!isDestroyed) item.icon = BitmapDrawable(resources, bitmap)
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    /** Tab roots replace the whole history: system back on one exits the app. */
+    private fun showRoot(name: String) {
+        screenStack.clear()
+        screenStack.addLast(name)
+        connect(name)
     }
 
     private fun showScreen(name: String) {
