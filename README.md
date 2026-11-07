@@ -27,17 +27,38 @@ def home() -> lt.Component:
 ![Saving the Python file live-reloads the screen on the phone](docs/hot-reload.gif)
 
 *The dev loop: save the Python file, `uvicorn --reload` restarts the server, the shell
-reconnects over WebSocket and renders the fresh screen — no rebuild, no reinstall.*
+reconnects over WebSocket and renders the fresh screen — no rebuild, no reinstall. The
+bottom bar is native (`BottomNavigationView` / `UITabBarController`), declared from
+Python too.*
 
 ## Status
 
-Early development, built in public. Working today: a 13-component Python DSL with a
-styling layer, a FastAPI server that exposes screens as DivKit card JSON, and native
-shells for **Android and iOS** that render screens from that server with live reload,
-real navigation, and forms — a Submit button POSTs the screen's values to a Python
-handler, which answers with where to go next. Nothing ships to the app stores for you
-yet, and the native bottom bar declared by `Latawiec(tabs=...)` is still landing in the
-shells.
+Young but real, built in public. Working today, on both shells, from one Python file:
+
+- 13 components with a styling layer, native bottom bars, and routed screens —
+  `@app.screen("product/{id}")` receives `ctx.params`, builders may be `async`
+- Auth end to end: `@app.auth` returns your user object, guarded screens answer
+  401/4401, the shells keep the bearer token encrypted (Keystore / Keychain) and
+  fall back to your login screen
+- A production mode: `Latawiec(dev=False, version=...)` switches phones from the
+  live-reload socket to GET with a versioned disk cache — screens render instantly
+  from the last-known copy, offline included, and a version bump drops every
+  cached screen on the phones' next fetch
+- Error and loading states, back stacks that keep screen state, and
+  [a shipping guide](docs/shipping.md) that takes a branded shell to Play and
+  App Store Connect
+
+What it lacks is mileage: no third-party apps in production yet.
+
+## Why so small
+
+The release APK is **2.5 MB**, kept under a 3 MB CI budget — against 17.3 MB for
+Flutter and 33.5 MB for React Native in
+[SWMansion's same-app comparison](https://swmansion.com/blog/we-built-the-same-app-in-flutter-and-react-native-here-s-what-we-found/)
+(2026). The
+shell is plain native views plus DivKit and an HTTP client: no bundled runtime, no
+webview. And because screens are server-side Python, **features weigh zero** — an
+app with 500 screens ships the same shell as an app with five.
 
 ## Components
 
@@ -59,7 +80,7 @@ lt.Text(
 )
 ```
 
-## How it will work
+## How it works
 
 ```text
 Python DSL (sdk-python/)  →  DivKit JSON over HTTP/WebSocket  →  native shell (Android/iOS)
@@ -68,9 +89,10 @@ Python DSL (sdk-python/)  →  DivKit JSON over HTTP/WebSocket  →  native shel
 - **sdk-python/** — the `latawiec` package: component DSL built on
   [pydivkit](https://pypi.org/project/pydivkit/) and the FastAPI-based screen server.
 - **shell-android/** — a thin, fully native Kotlin app: DivKit renders whatever the server
-  sends. No Flutter, no React Native, no webview.
+  sends onto a view stack with real transitions. No Flutter, no React Native, no webview.
 - **shell-ios/** — the same, in Swift (UIKit + DivKit); screens push onto a real
   UINavigationController, so back is the system back.
+- **docs/shipping.md** — how a branded build of either shell gets to the stores.
 - **mcp** (the `latawiec[mcp]` extra) — an MCP server so coding agents can build and
   preview Latawiec apps; see "For coding agents" below.
 
@@ -110,8 +132,10 @@ cd shell-ios && xcodegen generate && open LatawiecShell.xcodeproj   # run on a s
 ```
 
 Edit `examples/hello.py` while both are running and the phone follows your saves.
-`examples/catalog.py` is a bigger app: a product list whose screens are generated
-from plain Python data in a loop.
+The other examples each show one pillar: `catalog.py` (a routed product list),
+`tabs.py` (the native bottom bar), `auth.py` (sign-in and guarded screens), and
+`prod.py` (production mode with the offline cache). The shells' UI tests run
+against four of them — see CLAUDE.md for the ports.
 
 ## License
 
