@@ -23,6 +23,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
 import com.yandex.div.DivDataTag
+import com.yandex.div.coil.CoilDivImageLoader
 import com.yandex.div.core.Div2Context
 import com.yandex.div.core.DivActionHandler
 import com.yandex.div.core.DivConfiguration
@@ -31,7 +32,6 @@ import com.yandex.div.core.view2.Div2View
 import com.yandex.div.data.DivParsingEnvironment
 import com.yandex.div.json.ParsingErrorLogger
 import com.yandex.div.json.expressions.ExpressionResolver
-import com.yandex.div.coil.CoilDivImageLoader
 import com.yandex.div2.DivAction
 import com.yandex.div2.DivData
 import java.io.IOException
@@ -50,6 +50,7 @@ import org.json.JSONObject
 private const val TAG = "Latawiec"
 private const val RECONNECT_DELAY_MS = 1_000L
 private const val RECONNECT_DELAY_MAX_MS = 30_000L
+private const val PUSH_ANIMATION_MS = 250L
 
 /** The server's WebSocket close code for a missing or rejected token. */
 private const val NOT_AUTHORIZED = 4401
@@ -64,12 +65,11 @@ class MainActivity : AppCompatActivity() {
     private val serverUrl by lazy {
         intent.getStringExtra("serverUrl").takeIf { BuildConfig.DEBUG } ?: BuildConfig.SERVER_URL
     }
-    private lateinit var divView: Div2View
-    private lateinit var spinner: ProgressBar
+    private lateinit var div2Context: Div2Context
+    private lateinit var stackHost: FrameLayout
     private lateinit var bottomBar: BottomNavigationView
     private lateinit var tokenStore: TokenStore
     private lateinit var screenCache: ScreenCache
-    private var socket: WebSocket? = null
     private var token: String? = null
 
     /** Dev keeps the live-reload socket; production fetches and caches. */
@@ -78,10 +78,12 @@ class MainActivity : AppCompatActivity() {
     /** Screen from the manifest to show when the server answers 401/4401. */
     private var loginScreen: String? = null
 
-    /** Navigation history; the screen on top is the one on display. */
-    private val screenStack = ArrayDeque<String>()
-
-    private var reconnectDelayMs = RECONNECT_DELAY_MS
+    /**
+     * One view per screen, stacked like iOS's navigation controllers: popping
+     * uncovers the previous view with its DivKit variables intact, instead of
+     * refetching the screen and losing what the user typed.
+     */
+    private val screens = ArrayDeque<ScreenView>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,19 +93,12 @@ class MainActivity : AppCompatActivity() {
         val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
             .build()
-        divView = Div2View(Div2Context(this, configuration))
+        div2Context = Div2Context(this, configuration)
         bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
-        spinner = ProgressBar(this)
-        val content = FrameLayout(this).apply {
-            addView(divView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            addView(
-                spinner,
-                FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER),
-            )
-        }
+        stackHost = FrameLayout(this)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(content, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(stackHost, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(bottomBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
         setContentView(root, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -112,12 +107,7 @@ class MainActivity : AppCompatActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (screenStack.size > 1) {
-                        screenStack.removeLast()
-                        open(screenStack.last())
-                    } else {
-                        finish()
-                    }
+                    if (screens.size > 1) pop() else finish()
                 }
             },
         )
@@ -126,143 +116,194 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        socket?.cancel()
+        screens.forEach(ScreenView::stop)
         super.onDestroy()
     }
 
-    private fun open(name: String) {
-        if (devMode) connect(name) else fetchScreen(name)
+    /** Tab roots replace the whole history: system back on one exits the app. */
+    private fun showRoot(name: String) {
+        screens.forEach {
+            it.stop()
+            stackHost.removeView(it)
+        }
+        screens.clear()
+        push(name, animated = false)
+    }
+
+    private fun showScreen(name: String) {
+        // A double-tap would stack the same screen twice and break back.
+        if (name != screens.lastOrNull()?.name) push(name, animated = true)
+    }
+
+    private fun push(name: String, animated: Boolean) {
+        val screen = ScreenView(name)
+        screens.addLast(screen)
+        stackHost.addView(screen, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        if (animated) {
+            screen.translationX = stackHost.width.toFloat()
+            screen.animate().translationX(0f).setDuration(PUSH_ANIMATION_MS)
+        }
+        screen.start()
+    }
+
+    private fun pop() {
+        val leaving = screens.removeLast()
+        // Stopped before the slide: a teardown mid-animation would skip the
+        // end action and leak the socket.
+        leaving.stop()
+        leaving.animate()
+            .translationX(stackHost.width.toFloat())
+            .setDuration(PUSH_ANIMATION_MS)
+            .withEndAction { stackHost.removeView(leaving) }
     }
 
     /**
-     * Production path: render the last-known screen from disk right away,
-     * then revalidate over GET and swap in the fresh payload — unless the
-     * cached copy is "static", which lives until the manifest version moves.
+     * One screen of the stack: its own DivView, spinner, and transport. In dev
+     * every stacked screen keeps its socket, so the whole stack live-reloads;
+     * in production the screen renders from the cache and revalidates.
      */
-    private fun fetchScreen(name: String) {
-        val cached = screenCache.load(name)
-        if (cached != null) {
-            render(name, cached.payload)
-            if (cached.policy == "static") return
+    private inner class ScreenView(val name: String) : FrameLayout(this@MainActivity) {
+
+        private val divView = Div2View(div2Context)
+        private val spinner = ProgressBar(context)
+        private var socket: WebSocket? = null
+        private var reconnectDelayMs = RECONNECT_DELAY_MS
+
+        init {
+            addView(divView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(spinner, LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER))
         }
-        val request = authorized(Request.Builder().url("$serverUrl/screens/$name")).build()
-        http.newCall(request).enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    // With a cached copy on screen this is offline mode; a
-                    // blank screen keeps retrying on the socket's backoff.
-                    Log.w(TAG, "screen $name fetch failed: $e")
-                    if (cached == null) retryFetch(name)
-                }
 
-                override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        if (it.code == 401) {
-                            divView.post { if (!isDestroyed) onUnauthorized() }
-                            return
-                        }
-                        if (!it.isSuccessful) {
-                            Log.w(TAG, "screen $name answered HTTP ${it.code}")
-                            if (cached == null) retryFetch(name)
-                            return
-                        }
-                        val payload = it.body?.string() ?: return
-                        val header = it.header("Cache-Control").orEmpty()
-                        val policy = when {
-                            "no-store" in header -> "no-store"
-                            "immutable" in header -> "static"
-                            else -> "swr"
-                        }
-                        if (policy != "no-store") screenCache.store(name, policy, payload)
-                        render(name, payload)
+        fun start() {
+            if (devMode) connect() else fetch()
+        }
+
+        fun stop() {
+            socket?.cancel()
+        }
+
+        /**
+         * The screen arrives over this socket on connect. The server holds it
+         * open; when it restarts (`uvicorn --reload` on every code change) the
+         * socket drops and the reconnect delivers the fresh screen — that is
+         * the live-reload loop.
+         *
+         * Callbacks of a superseded socket can still fire (cancel() itself
+         * triggers onFailure), so each one acts only when its webSocket is
+         * still the one in the `socket` field.
+         */
+        private fun connect() {
+            socket?.cancel()
+            val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$name"
+            socket = http.newWebSocket(
+                authorized(Request.Builder().url(url)).build(),
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        if (webSocket == socket) render(text)
                     }
+
+                    // OkHttp does not finish the close handshake by itself:
+                    // without this close() call onClosed never fires and the
+                    // reload loop stalls.
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        webSocket.close(1000, null)
+                    }
+
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                        if (webSocket != socket) return
+                        if (code == NOT_AUTHORIZED) {
+                            post { if (!isDestroyed) onUnauthorized() }
+                        } else {
+                            later { connect() }
+                        }
+                    }
+
+                    override fun onFailure(
+                        webSocket: WebSocket,
+                        t: Throwable,
+                        response: Response?,
+                    ) {
+                        Log.w(TAG, "socket to $url failed: $t")
+                        if (webSocket == socket) later { connect() }
+                    }
+                },
+            )
+        }
+
+        /**
+         * Production path: render the last-known screen from disk right away,
+         * then revalidate over GET and swap in the fresh payload — unless the
+         * cached copy is "static", which lives until the manifest version
+         * moves.
+         */
+        private fun fetch() {
+            val cached = screenCache.load(name)
+            if (cached != null) {
+                render(cached.payload)
+                if (cached.policy == "static") return
+            }
+            val request = authorized(Request.Builder().url("$serverUrl/screens/$name")).build()
+            http.newCall(request).enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        // With a cached copy on screen this is offline mode; a
+                        // blank screen keeps retrying on the socket's backoff.
+                        Log.w(TAG, "screen $name fetch failed: $e")
+                        if (cached == null) later { fetch() }
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        response.use {
+                            if (it.code == 401) {
+                                post { if (!isDestroyed) onUnauthorized() }
+                                return
+                            }
+                            if (!it.isSuccessful) {
+                                Log.w(TAG, "screen $name answered HTTP ${it.code}")
+                                if (cached == null) later { fetch() }
+                                return
+                            }
+                            val payload = it.body?.string() ?: return
+                            val header = it.header("Cache-Control").orEmpty()
+                            val policy = when {
+                                "no-store" in header -> "no-store"
+                                "immutable" in header -> "static"
+                                else -> "swr"
+                            }
+                            if (policy != "no-store") screenCache.store(name, policy, payload)
+                            render(payload)
+                        }
+                    }
+                },
+            )
+        }
+
+        /** Backs off while the server stays away; a delivered screen resets it. */
+        private fun later(retry: () -> Unit) {
+            postDelayed(
+                { if (!isDestroyed && isAttachedToWindow) retry() },
+                reconnectDelayMs,
+            )
+            reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_DELAY_MAX_MS)
+        }
+
+        private fun render(payload: String) {
+            reconnectDelayMs = RECONNECT_DELAY_MS
+            val data = parseCard(JSONObject(payload))
+            post {
+                if (!isDestroyed) {
+                    divView.setData(data, DivDataTag(name))
+                    spinner.visibility = View.GONE
                 }
-            },
-        )
-    }
-
-    private fun retryFetch(name: String) {
-        divView.postDelayed(
-            { if (!isDestroyed && name == screenStack.lastOrNull()) fetchScreen(name) },
-            reconnectDelayMs,
-        )
-        reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_DELAY_MAX_MS)
-    }
-
-    private fun render(name: String, payload: String) {
-        reconnectDelayMs = RECONNECT_DELAY_MS
-        val data = parseCard(JSONObject(payload))
-        divView.post {
-            if (!isDestroyed && name == screenStack.lastOrNull()) {
-                divView.setData(data, DivDataTag(name))
-                spinner.visibility = View.GONE
             }
         }
     }
 
     /** The user acted and nothing happened; say so instead of only logging. */
     private fun showError(message: String) {
-        divView.post {
-            if (!isDestroyed) Snackbar.make(divView, message, Snackbar.LENGTH_LONG).show()
+        stackHost.post {
+            if (!isDestroyed) Snackbar.make(stackHost, message, Snackbar.LENGTH_LONG).show()
         }
-    }
-
-    /**
-     * The screen arrives over this socket on connect. The server holds it open;
-     * when it restarts (`uvicorn --reload` on every code change) the socket drops
-     * and the reconnect delivers the fresh screen — that is the live-reload loop.
-     *
-     * Callbacks of a superseded socket can still fire after navigation (cancel()
-     * itself triggers onFailure), so each one acts only when its webSocket is
-     * still the one in the `socket` field.
-     */
-    private fun connect(name: String) {
-        socket?.cancel()
-        val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$name"
-        socket = http.newWebSocket(
-            authorized(Request.Builder().url(url)).build(),
-            object : WebSocketListener() {
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    reconnectDelayMs = RECONNECT_DELAY_MS
-                    val data = parseCard(JSONObject(text))
-                    divView.post {
-                        if (webSocket == socket) {
-                            divView.setData(data, DivDataTag(name))
-                            spinner.visibility = View.GONE
-                        }
-                    }
-                }
-
-                // OkHttp does not finish the close handshake by itself: without this
-                // close() call onClosed never fires and the reload loop stalls.
-                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                    webSocket.close(1000, null)
-                }
-
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (webSocket != socket) return
-                    if (code == NOT_AUTHORIZED) {
-                        divView.post { if (!isDestroyed) onUnauthorized() }
-                    } else {
-                        reconnect(name)
-                    }
-                }
-
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    Log.w(TAG, "socket to $url failed: $t")
-                    if (webSocket == socket) reconnect(name)
-                }
-            },
-        )
-    }
-
-    // Backs off while the server stays away; a delivered screen resets it.
-    private fun reconnect(name: String) {
-        divView.postDelayed(
-            { if (!isDestroyed && name == screenStack.lastOrNull()) connect(name) },
-            reconnectDelayMs,
-        )
-        reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_DELAY_MAX_MS)
     }
 
     private fun authorized(builder: Request.Builder): Request.Builder {
@@ -307,7 +348,7 @@ class MainActivity : AppCompatActivity() {
                             null
                         }
                     }
-                    divView.post { if (!isDestroyed) applyManifest(remembered) }
+                    stackHost.post { if (!isDestroyed) applyManifest(remembered) }
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -324,7 +365,7 @@ class MainActivity : AppCompatActivity() {
                             null
                         }
                     }
-                    divView.post { if (!isDestroyed) applyManifest(manifest) }
+                    stackHost.post { if (!isDestroyed) applyManifest(manifest) }
                 }
             },
         )
@@ -342,11 +383,11 @@ class MainActivity : AppCompatActivity() {
             showRoot("home")
             return
         }
-        val screens = ArrayList<String>(tabs.length())
+        val tabScreens = ArrayList<String>(tabs.length())
         try {
             for (i in 0 until tabs.length()) {
                 val tab = tabs.getJSONObject(i)
-                screens.add(tab.getString("screen"))
+                tabScreens.add(tab.getString("screen"))
                 val item = bottomBar.menu.add(Menu.NONE, i, i, tab.getString("title"))
                 item.icon = placeholderIcon()
                 if (!tab.isNull("icon")) loadIcon(tab.getString("icon"), item)
@@ -361,14 +402,14 @@ class MainActivity : AppCompatActivity() {
         if (accent.isNotEmpty()) tintBar(accent)
         bottomBar.selectedItemId = 0
         bottomBar.setOnItemSelectedListener { item ->
-            showRoot(screens[item.itemId])
+            showRoot(tabScreens[item.itemId])
             true
         }
         // Without this, Material routes a re-tap of the selected item to the
         // selected listener, which would reset the tab.
         bottomBar.setOnItemReselectedListener {}
         bottomBar.visibility = View.VISIBLE
-        showRoot(screens[0])
+        showRoot(tabScreens[0])
     }
 
     private fun tintBar(accent: String) {
@@ -414,28 +455,13 @@ class MainActivity : AppCompatActivity() {
                             Log.w(TAG, "icon $path did not decode as an image")
                             return
                         }
-                        divView.post {
+                        stackHost.post {
                             if (!isDestroyed) item.icon = BitmapDrawable(resources, bitmap)
                         }
                     }
                 }
             },
         )
-    }
-
-    /** Tab roots replace the whole history: system back on one exits the app. */
-    private fun showRoot(name: String) {
-        screenStack.clear()
-        screenStack.addLast(name)
-        open(name)
-    }
-
-    private fun showScreen(name: String) {
-        // A double-tap would stack the same screen twice and break back.
-        if (name != screenStack.lastOrNull()) {
-            screenStack.addLast(name)
-            open(name)
-        }
     }
 
     /**
@@ -463,7 +489,7 @@ class MainActivity : AppCompatActivity() {
                 override fun onResponse(call: Call, response: Response) {
                     response.use {
                         if (it.code == 401) {
-                            divView.post { if (!isDestroyed) onUnauthorized() }
+                            stackHost.post { if (!isDestroyed) onUnauthorized() }
                             return
                         }
                         if (!it.isSuccessful) {
@@ -480,7 +506,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         val navigate = body.opt("navigate")
                         if (navigate is String) {
-                            divView.post { if (!isDestroyed) showScreen(navigate) }
+                            stackHost.post { if (!isDestroyed) showScreen(navigate) }
                         }
                     }
                 }
