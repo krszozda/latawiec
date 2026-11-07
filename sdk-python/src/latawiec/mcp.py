@@ -22,9 +22,10 @@ Latawiec: write native mobile screens in Python; a thin native shell renders the
 with DivKit. Package `latawiec` on PyPI.
 
 Components:
-- Text(text, size=None)
+- Text(text, size=None)  # text may use DivKit expressions: Text("Hello, @{name}!")
 - Image(url)
-- Button(label, on_tap=Navigate(screen))  # tap opens another screen
+- Button(label, on_tap=...)  # on_tap: Navigate(screen) | SetVariable(variable, value)
+- TextInput(variable, hint=None, initial="")  # declares the variable it binds to
 - Column(*children), Row(*children)
 - render(component) -> DivKit card dict (what a shell consumes)
 

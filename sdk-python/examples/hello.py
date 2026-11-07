@@ -16,6 +16,7 @@ def home() -> lt.Component:
         lt.Text("Hello from Python", size=28),
         lt.Text("This screen was rendered natively by DivKit."),
         lt.Button("Checkout", on_tap=lt.Navigate("checkout")),
+        lt.Button("Greeter", on_tap=lt.Navigate("greeter")),
     )
 
 
@@ -24,4 +25,14 @@ def checkout() -> lt.Component:
     return lt.Column(
         lt.Text("Checkout", size=28),
         lt.Text("A server-defined button brought you here; system back returns home."),
+    )
+
+
+@app.screen("greeter")
+def greeter() -> lt.Component:
+    return lt.Column(
+        lt.Text("Greeter", size=28),
+        lt.TextInput("name", hint="Your name"),
+        lt.Text("Hello, @{name}!", size=20),
+        lt.Button("Clear", on_tap=lt.SetVariable("name", "")),
     )
