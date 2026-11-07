@@ -60,6 +60,10 @@ App and server (Latawiec subclasses FastAPI):
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
 - @app.action(name) registers a Submit handler: it gets the submitted values
   as dict[str, str] and may return Navigate to send the shell onward.
+- Latawiec(tabs=[Tab(screen, title, icon=None)], theme=Theme(accent="#2962FF"))
+  declares the native bottom bar and chrome colors; shells read GET /manifest.
+- app.assets("static") serves that directory under /assets — tab icons point
+  there, e.g. Tab("home", "Home", icon="/assets/home.png").
 
 Dev loop: `uvicorn module:app --host 0.0.0.0 --reload` — the native shells
 (Android and iOS) reconnect on every save and live-reload the screen. System

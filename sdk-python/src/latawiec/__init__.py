@@ -20,7 +20,7 @@ from latawiec.components import (
     TextInput,
     render,
 )
-from latawiec.server import Latawiec
+from latawiec.server import Latawiec, Tab, Theme
 
 __all__ = [
     "Action",
@@ -39,7 +39,9 @@ __all__ = [
     "Style",
     "Submit",
     "Switch",
+    "Tab",
     "Text",
     "TextInput",
+    "Theme",
     "render",
 ]
