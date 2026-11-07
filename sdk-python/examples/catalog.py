@@ -2,8 +2,8 @@
 
     uv run uvicorn examples.catalog:app --host 0.0.0.0
 
-One list screen plus one screen per product, all registered in a loop —
-screens are ordinary Python over ordinary data.
+One scrolling list screen plus one screen per product, all registered in a
+loop — screens are ordinary Python over ordinary data.
 """
 
 from dataclasses import dataclass
@@ -29,30 +29,50 @@ PRODUCTS = [
 
 app = lt.Latawiec()
 
+GUTTER = lt.Edges(left=16, right=16)
+
+
+def product_card(product: Product) -> lt.Component:
+    return lt.Column(
+        lt.Image(product.photo, style=lt.Style(corner_radius=12)),
+        lt.Text(product.name, size=20, weight="medium", style=lt.Style(margin=lt.Edges(top=8))),
+        lt.Text(product.price, color="#2962FF", weight="bold"),
+        lt.Button(
+            "View",
+            on_tap=lt.Navigate(product.slug),
+            style=lt.Style(margin=lt.Edges(top=8)),
+        ),
+        style=lt.Style(padding=12, margin=GUTTER, background="#F5F5F5", corner_radius=16),
+    )
+
 
 @app.screen("home")
 def home() -> lt.Component:
-    listing = [
-        item
-        for product in PRODUCTS
-        for item in (
-            lt.Text(f"{product.name} — {product.price}", size=20),
-            lt.Button("View", on_tap=lt.Navigate(product.slug)),
-        )
-    ]
-    return lt.Column(
-        lt.Text("Kite shop", size=28),
-        *listing,
-        lt.Text(f"Rendered server-side at {datetime.now():%H:%M:%S}"),
+    return lt.Gallery(
+        lt.Text(
+            "Kite shop",
+            size=28,
+            weight="bold",
+            # Clears the status bar: the shells render edge to edge.
+            style=lt.Style(margin=lt.Edges(top=48, left=16, right=16, bottom=8)),
+        ),
+        *[product_card(product) for product in PRODUCTS],
+        lt.Text(
+            f"Rendered server-side at {datetime.now():%H:%M:%S}",
+            color="#757575",
+            style=lt.Style(margin=16),
+        ),
+        spacing=8,
     )
 
 
 def product_screen(product: Product) -> lt.Component:
     return lt.Column(
         lt.Image(product.photo),
-        lt.Text(product.name, size=28),
-        lt.Text(product.price, size=20),
-        lt.Text("System back returns to the list."),
+        lt.Text(product.name, size=28, weight="bold", style=lt.Style(margin=GUTTER)),
+        lt.Text(product.price, size=20, color="#2962FF", style=lt.Style(margin=GUTTER)),
+        lt.Separator(style=lt.Style(margin=lt.Edges(top=12, left=16, right=16))),
+        lt.Text("System back returns to the list.", style=lt.Style(margin=16)),
     )
 
 

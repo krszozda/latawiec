@@ -31,12 +31,33 @@ reconnects over WebSocket and renders the fresh screen — no rebuild, no reinst
 
 ## Status
 
-Early development, built in public. Working today: a small Python DSL (text, image,
-column/row, buttons, text inputs with on-device variables), a FastAPI server that exposes
-screens as DivKit card JSON, and native shells for **Android and iOS** that render screens
-from that server with live reload, real navigation, and forms — a Submit button POSTs the
-screen's values to a Python handler, which answers with where to go next. The component
-set is still small, and nothing ships to the app stores for you yet.
+Early development, built in public. Working today: a 13-component Python DSL with a
+styling layer, a FastAPI server that exposes screens as DivKit card JSON, and native
+shells for **Android and iOS** that render screens from that server with live reload,
+real navigation, and forms — a Submit button POSTs the screen's values to a Python
+handler, which answers with where to go next. Nothing ships to the app stores for you
+yet, and the native bottom bar declared by `Latawiec(tabs=...)` is still landing in the
+shells.
+
+## Components
+
+Layout: `Column`, `Row`, `Gallery` (scrolling list), `Grid`, `Separator`, `Spacer`.
+Content: `Text`, `Image`, `Button`. Forms: `TextInput`, `Switch`, `Select`, `Slider` —
+each binds a screen variable that any component can read reactively with a DivKit
+expression (`Text("Hello, @{name}!")`), and `Submit` POSTs the values to the server.
+
+Every component takes `style=Style(...)` — padding, margin, width/height (dp, `"fill"`,
+`"wrap"`), background, corner radius, border, alignment, alpha — with `Edges` for
+per-side spacing:
+
+```python
+lt.Text(
+    "Box kite — $29",
+    size=20,
+    weight="medium",
+    style=lt.Style(padding=12, background="#F5F5F5", corner_radius=16),
+)
+```
 
 ## How it will work
 
