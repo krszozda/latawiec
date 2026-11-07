@@ -4,6 +4,9 @@ import os
 
 private let log = Logger(subsystem: "io.github.krszozda.latawiec", category: "shell")
 
+/// The server's WebSocket close code for a missing or rejected token.
+private let notAuthorized = 4401
+
 /// One Latawiec screen: a DivView fed over a WebSocket.
 ///
 /// The server sends the card on connect and holds the socket; when it restarts
@@ -53,7 +56,9 @@ final class ScreenViewController: UIViewController {
             base = base.replacingCharacters(in: scheme, with: "ws")
         }
         guard let url = URL(string: "\(base)/ws/screens/\(path)") else { return }
-        let task = URLSession.shared.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        Auth.authorize(&request)
+        let task = URLSession.shared.webSocketTask(with: request)
         socket = task
         receive(on: task)
         task.resume()
@@ -76,6 +81,10 @@ final class ScreenViewController: UIViewController {
                 }
                 self.receive(on: task)
             case let .failure(error):
+                if task.closeCode.rawValue == notAuthorized {
+                    DispatchQueue.main.async { Auth.unauthorized() }
+                    return
+                }
                 log.warning("socket for \(self.screen) failed: \(String(describing: error))")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                     self?.connect()
@@ -125,19 +134,29 @@ final class ScreenViewController: UIViewController {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: values)
+        Auth.authorize(&request)
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error {
                 log.warning("action \(action) failed: \(String(describing: error))")
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if status == 401 {
+                DispatchQueue.main.async { Auth.unauthorized() }
+                return
+            }
             guard status == 200, let data else {
                 log.warning("action \(action) answered HTTP \(status)")
                 return
             }
-            guard let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let screen = answer["navigate"] as? String
+            guard let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { return }
+            // A sign-in action grants the token every later request
+            // authenticates with.
+            if let granted = answer["token"] as? String {
+                Auth.grant(granted)
+            }
+            guard let screen = answer["navigate"] as? String else { return }
             DispatchQueue.main.async { self?.show(screen: screen) }
         }.resume()
     }

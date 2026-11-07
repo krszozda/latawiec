@@ -202,11 +202,13 @@ class TextInput(Component):
     variable: str
     hint: str | None = None
     initial: str = ""
+    password: bool = False
     style: Style | None = None
 
     def _build(self) -> dv.Div:
         return dv.DivInput(
             text_variable=self.variable,
+            keyboard_type=dv.DivInputKeyboardType.PASSWORD if self.password else None,
             hint_text=self.hint,
             # Without a description the input is invisible to screen readers
             # (and to UI tests) on both platforms.

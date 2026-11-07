@@ -27,7 +27,7 @@ def check(token: str | None) -> bool:
 def signin() -> lt.Component:
     return lt.Column(
         lt.Text("Sign in", size=28, weight="bold", style=lt.Style(margin=48)),
-        lt.TextInput("code", hint="Access code", style=lt.Style(margin=16)),
+        lt.TextInput("code", hint="Access code", password=True, style=lt.Style(margin=16)),
         lt.Button(
             "Enter",
             on_tap=lt.Submit("sign-in", send=("code",)),

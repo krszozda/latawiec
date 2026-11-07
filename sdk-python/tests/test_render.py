@@ -82,6 +82,13 @@ def test_text_input_binds_a_card_level_variable() -> None:
     assert card["card"]["variables"] == [{"type": "string", "name": "name", "value": "kite"}]
 
 
+def test_password_input_uses_the_password_keyboard() -> None:
+    card = lt.render(lt.TextInput("code", password=True))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["keyboard_type"] == "password"
+
+
 def test_nested_input_variables_are_hoisted_to_the_card() -> None:
     card = lt.render(lt.Column(lt.Row(lt.TextInput("a")), lt.TextInput("b", initial="x")))
 
