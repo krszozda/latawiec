@@ -1,0 +1,39 @@
+name: LatawiecShell
+options:
+  deploymentTarget:
+    iOS: "15.0"
+packages:
+  DivKit:
+    url: https://github.com/divkit/divkit-ios
+    exactVersion: 33.10.0
+targets:
+  LatawiecShell:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: DivKit
+        product: DivKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.krszozda.latawiec.shell
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen: {}
+        # A dev shell talking to a plain-HTTP dev server, like the Android
+        # shell's usesCleartextTraffic.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+  LatawiecShellUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: LatawiecShell
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES

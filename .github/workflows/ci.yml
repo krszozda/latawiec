@@ -32,3 +32,17 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: ./gradlew :app:assembleDebug --no-daemon
+
+  ios:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: shell-ios
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: >
+          xcodebuild -project LatawiecShell.xcodeproj -scheme LatawiecShell
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build

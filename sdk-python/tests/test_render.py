@@ -78,6 +78,7 @@ def test_text_input_binds_a_card_level_variable() -> None:
     assert div["type"] == "input"
     assert div["text_variable"] == "name"
     assert div["hint_text"] == "Your name"
+    assert div["accessibility"] == {"description": "Your name"}
     assert card["card"]["variables"] == [{"type": "string", "name": "name", "value": "kite"}]
 
 
