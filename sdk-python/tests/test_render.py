@@ -1,3 +1,5 @@
+import pytest
+
 import latawiec as lt
 
 
@@ -55,6 +57,50 @@ def test_navigate_percent_encodes_screen_name() -> None:
 
     action = card["card"]["states"][0]["div"]["actions"][0]
     assert action["url"] == "latawiec://navigate?screen=a%26b%20c"
+
+
+def test_text_input_binds_a_card_level_variable() -> None:
+    card = lt.render(lt.TextInput("name", hint="Your name", initial="kite"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["type"] == "input"
+    assert div["text_variable"] == "name"
+    assert div["hint_text"] == "Your name"
+    assert card["card"]["variables"] == [{"type": "string", "name": "name", "value": "kite"}]
+
+
+def test_nested_input_variables_are_hoisted_to_the_card() -> None:
+    card = lt.render(lt.Column(lt.Row(lt.TextInput("a")), lt.TextInput("b", initial="x")))
+
+    assert card["card"]["variables"] == [
+        {"type": "string", "name": "a", "value": ""},
+        {"type": "string", "name": "b", "value": "x"},
+    ]
+
+
+def test_conflicting_variable_initials_are_rejected() -> None:
+    with pytest.raises(ValueError, match="conflicting initial values"):
+        lt.render(lt.Column(lt.TextInput("name", initial="a"), lt.TextInput("name")))
+
+
+def test_screens_without_inputs_declare_no_variables() -> None:
+    card = lt.render(lt.Text("x"))
+
+    assert "variables" not in card["card"]
+
+
+def test_button_can_set_a_variable() -> None:
+    card = lt.render(lt.Button("Reset", on_tap=lt.SetVariable("name", "")))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "set:name",
+        "typed": {
+            "type": "set_variable",
+            "variable_name": "name",
+            "value": {"type": "string", "value": ""},
+        },
+    }
 
 
 def test_render_wraps_root_in_card_envelope() -> None:
