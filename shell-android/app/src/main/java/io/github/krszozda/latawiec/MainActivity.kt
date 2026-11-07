@@ -9,6 +9,7 @@ import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -16,9 +17,11 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.snackbar.Snackbar
 import com.yandex.div.DivDataTag
 import com.yandex.div.core.Div2Context
 import com.yandex.div.core.DivActionHandler
@@ -62,6 +65,7 @@ class MainActivity : AppCompatActivity() {
         intent.getStringExtra("serverUrl").takeIf { BuildConfig.DEBUG } ?: BuildConfig.SERVER_URL
     }
     private lateinit var divView: Div2View
+    private lateinit var spinner: ProgressBar
     private lateinit var bottomBar: BottomNavigationView
     private lateinit var tokenStore: TokenStore
     private lateinit var screenCache: ScreenCache
@@ -89,9 +93,17 @@ class MainActivity : AppCompatActivity() {
             .build()
         divView = Div2View(Div2Context(this, configuration))
         bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
+        spinner = ProgressBar(this)
+        val content = FrameLayout(this).apply {
+            addView(divView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(
+                spinner,
+                FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER),
+            )
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(divView, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(content, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(bottomBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
         setContentView(root, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -137,8 +149,10 @@ class MainActivity : AppCompatActivity() {
         http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    // With a cached copy on screen this is offline mode.
+                    // With a cached copy on screen this is offline mode; a
+                    // blank screen keeps retrying on the socket's backoff.
                     Log.w(TAG, "screen $name fetch failed: $e")
+                    if (cached == null) retryFetch(name)
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -149,6 +163,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         if (!it.isSuccessful) {
                             Log.w(TAG, "screen $name answered HTTP ${it.code}")
+                            if (cached == null) retryFetch(name)
                             return
                         }
                         val payload = it.body?.string() ?: return
@@ -166,12 +181,29 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun retryFetch(name: String) {
+        divView.postDelayed(
+            { if (!isDestroyed && name == screenStack.lastOrNull()) fetchScreen(name) },
+            reconnectDelayMs,
+        )
+        reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_DELAY_MAX_MS)
+    }
+
     private fun render(name: String, payload: String) {
+        reconnectDelayMs = RECONNECT_DELAY_MS
         val data = parseCard(JSONObject(payload))
         divView.post {
             if (!isDestroyed && name == screenStack.lastOrNull()) {
                 divView.setData(data, DivDataTag(name))
+                spinner.visibility = View.GONE
             }
+        }
+    }
+
+    /** The user acted and nothing happened; say so instead of only logging. */
+    private fun showError(message: String) {
+        divView.post {
+            if (!isDestroyed) Snackbar.make(divView, message, Snackbar.LENGTH_LONG).show()
         }
     }
 
@@ -196,6 +228,7 @@ class MainActivity : AppCompatActivity() {
                     divView.post {
                         if (webSocket == socket) {
                             divView.setData(data, DivDataTag(name))
+                            spinner.visibility = View.GONE
                         }
                     }
                 }
@@ -424,6 +457,7 @@ class MainActivity : AppCompatActivity() {
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     Log.w(TAG, "action $action failed: $e")
+                    showError("No connection — try again")
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -434,6 +468,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         if (!it.isSuccessful) {
                             Log.w(TAG, "action $action answered HTTP ${it.code}")
+                            showError("Something went wrong — try again")
                             return
                         }
                         val body = JSONObject(it.body?.string() ?: return)
