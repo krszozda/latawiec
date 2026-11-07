@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -215,6 +216,60 @@ def test_builders_and_handlers_receive_the_user() -> None:
     assert div["items"][0]["text"] == "You are friend"
     client.post("/actions/record", json={}, headers=BEARER)
     assert seen == ["friend"]
+
+
+def test_async_builders_handlers_and_auth_work() -> None:
+    app = lt.Latawiec()
+
+    @app.auth
+    async def check(token: str | None) -> str | None:
+        return "async-user" if token == "t" else None
+
+    @app.screen("home")
+    async def home(ctx: lt.Context) -> lt.Component:
+        return lt.Column(lt.Text(f"async {ctx.user}"))
+
+    @app.action("do", public=True)
+    async def do(values: dict[str, str]) -> lt.Navigate:
+        return lt.Navigate("home")
+
+    client = TestClient(app)
+    div = client.get("/screens/home", headers={"Authorization": "Bearer t"}).json()["card"][
+        "states"
+    ][0]["div"]
+    assert div["items"][0]["text"] == "async async-user"
+    assert client.post("/actions/do", json={}).json() == {"navigate": "home"}
+
+
+def test_sync_builders_run_off_the_event_loop() -> None:
+    app = lt.Latawiec()
+    threads: list[int] = []
+
+    @app.screen("home")
+    def home() -> lt.Component:
+        threads.append(threading.get_ident())
+        return lt.Column(lt.Text("x"))
+
+    client = TestClient(app)
+
+    @app.get("/loop-thread")
+    async def loop_thread() -> dict[str, int]:
+        return {"ident": threading.get_ident()}
+
+    loop_ident = client.get("/loop-thread").json()["ident"]
+    assert client.get("/screens/home").status_code == 200
+    assert threads and threads[0] != loop_ident
+
+
+def test_render_screen_drives_async_builders() -> None:
+    app = lt.Latawiec()
+
+    @app.screen("home")
+    async def home() -> lt.Component:
+        return lt.Column(lt.Text("rendered"))
+
+    card = app.render_screen("home")
+    assert card["card"]["states"][0]["div"]["items"][0]["text"] == "rendered"
 
 
 def test_guarded_screen_needs_the_right_token() -> None:

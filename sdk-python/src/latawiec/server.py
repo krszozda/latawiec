@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from dataclasses import dataclass, field
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 
 from latawiec.components import Component, Navigate, render
@@ -55,12 +57,18 @@ class Context:
     """Values captured by {placeholders} in the screen's registered name."""
 
 
-ScreenBuilder = Callable[[], Component] | Callable[[Context], Component]
+# Builders, handlers, and the auth check may be sync or `async def`; sync
+# ones run in a threadpool so a blocking call cannot stall the event loop.
+ScreenBuilder = Callable[..., Component | Awaitable[Component]]
 ActionResult = Navigate | Grant | None
-ActionHandler = (
-    Callable[[dict[str, str]], ActionResult] | Callable[[dict[str, str], Context], ActionResult]
-)
+ActionHandler = Callable[..., ActionResult | Awaitable[ActionResult]]
 AuthHandler = Callable[[str | None], Any]
+
+
+async def _call(handler: Callable[..., Any], *args: Any) -> Any:
+    if inspect.iscoroutinefunction(handler):
+        return await handler(*args)
+    return await run_in_threadpool(handler, *args)
 
 
 def _bearer(authorization: str | None) -> str | None:
@@ -91,8 +99,8 @@ class Latawiec(FastAPI):
         self.login = login
         """Screen the shells show when the server answers 401/4401."""
         self._auth: AuthHandler | None = None
-        self._screens: dict[str, tuple[Callable[..., Component], bool]] = {}
-        self._actions: dict[str, tuple[Callable[..., ActionResult], bool]] = {}
+        self._screens: dict[str, tuple[ScreenBuilder, bool]] = {}
+        self._actions: dict[str, tuple[ActionHandler, bool]] = {}
         self._public_screens: set[str] = set()
         self._public_actions: set[str] = set()
         self.add_api_route("/manifest", self._manifest)
@@ -159,12 +167,21 @@ class Latawiec(FastAPI):
         return tuple(self._screens)
 
     def render_screen(self, name: str) -> dict[str, Any]:
-        """Render a screen by path (no user) to the payload a shell renders."""
+        """Render a screen by path (no user) to the payload a shell renders.
+
+        Synchronous for callers like the MCP tools; an `async def` builder
+        is driven with asyncio.run, so call it outside an event loop.
+        """
         resolved = self._resolve(name)
         if resolved is None:
             raise KeyError(f"no screen named {name!r}")
         template, params = resolved
-        return self._render(template, params, user=None)
+        builder, wants_context = self._screens[template]
+        args = (Context(params=params),) if wants_context else ()
+        component = builder(*args)
+        if not isinstance(component, Component):
+            component = asyncio.run(cast("Coroutine[Any, Any, Component]", component))
+        return render(component)
 
     def _resolve(self, name: str) -> tuple[str, dict[str, str]] | None:
         """Match a requested path to a registered name; exact names win."""
@@ -187,12 +204,12 @@ class Latawiec(FastAPI):
                 return template, params
         return None
 
-    def _render(self, template: str, params: dict[str, str], user: Any) -> dict[str, Any]:
+    async def _render(self, template: str, params: dict[str, str], user: Any) -> dict[str, Any]:
         builder, wants_context = self._screens[template]
-        component = builder(Context(user=user, params=params)) if wants_context else builder()
-        return render(component)
+        args = (Context(user=user, params=params),) if wants_context else ()
+        return render(await _call(builder, *args))
 
-    def _access(
+    async def _access(
         self, template: str | None, public: set[str], authorization: str | None
     ) -> tuple[bool, Any]:
         """Whether the request may proceed, and who it is.
@@ -205,7 +222,7 @@ class Latawiec(FastAPI):
             return True, None
         # Falsy means rejected — so a legacy handler returning False cannot
         # accidentally open every guarded screen.
-        user = self._auth(_bearer(authorization)) or None
+        user = await _call(self._auth, _bearer(authorization)) or None
         if template in public:
             return True, user
         return user is not None, user
@@ -227,7 +244,7 @@ class Latawiec(FastAPI):
     ) -> dict[str, Any]:
         resolved = self._resolve(name)
         template = resolved[0] if resolved else None
-        allowed, user = self._access(template, self._public_screens, authorization)
+        allowed, user = await self._access(template, self._public_screens, authorization)
         if not allowed:
             raise HTTPException(
                 status_code=401,
@@ -236,7 +253,7 @@ class Latawiec(FastAPI):
             )
         if resolved is None:
             raise HTTPException(status_code=404, detail=f"no screen named {name!r}")
-        return self._render(resolved[0], resolved[1], user)
+        return await self._render(resolved[0], resolved[1], user)
 
     async def _action_result(
         self,
@@ -245,7 +262,7 @@ class Latawiec(FastAPI):
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, str | None]:
         registered = self._actions.get(name)
-        allowed, user = self._access(
+        allowed, user = await self._access(
             name if registered else None, self._public_actions, authorization
         )
         if not allowed:
@@ -257,7 +274,8 @@ class Latawiec(FastAPI):
         if registered is None:
             raise HTTPException(status_code=404, detail=f"no action named {name!r}")
         handler, wants_context = registered
-        result = handler(values, Context(user=user)) if wants_context else handler(values)
+        args = (values, Context(user=user)) if wants_context else (values,)
+        result = await _call(handler, *args)
         if isinstance(result, Grant):
             return {"navigate": result.screen, "token": result.token}
         return {"navigate": result.screen if result else None}
@@ -272,7 +290,7 @@ class Latawiec(FastAPI):
         await websocket.accept()
         resolved = self._resolve(name)
         template = resolved[0] if resolved else None
-        allowed, user = self._access(
+        allowed, user = await self._access(
             template, self._public_screens, websocket.headers.get("authorization")
         )
         if not allowed:
@@ -281,7 +299,7 @@ class Latawiec(FastAPI):
         if resolved is None:
             await websocket.close(code=NO_SUCH_SCREEN, reason=f"no screen named {name!r}")
             return
-        await websocket.send_json(self._render(resolved[0], resolved[1], user))
+        await websocket.send_json(await self._render(resolved[0], resolved[1], user))
         try:
             while True:
                 await websocket.receive_text()
