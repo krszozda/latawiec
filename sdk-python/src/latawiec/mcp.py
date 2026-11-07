@@ -70,8 +70,12 @@ App and server (Latawiec subclasses FastAPI):
 - @app.action(name) registers a Submit handler: it gets the submitted values
   as dict[str, str] and may return Navigate to send the shell onward.
 - Latawiec(tabs=[Tab(screen, title, icon=None)], theme=Theme(accent="#2962FF"),
-  login=None) declares the native bottom bar, chrome colors, and the screen
-  shown when the server answers 401; shells read GET /manifest.
+  login=None, version=None, dev=True) declares the native bottom bar, chrome
+  colors, the screen shown on 401, the content version (a change tells shells
+  to drop cached screens), and dev mode (deploy with dev=False: shells then
+  fetch screens over GET and cache them); shells read GET /manifest.
+- @app.screen(name, cache="static" | "swr" | "no-store") steers the shells'
+  screen cache; guarded screens default to no-store, the rest to swr.
 - app.assets("static") serves that directory under /assets — tab icons point
   there, e.g. Tab("home", "Home", icon="/assets/home.png").
 - @app.auth registers the token check: it gets the bearer token (or None) and

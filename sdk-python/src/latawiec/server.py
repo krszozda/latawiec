@@ -4,10 +4,11 @@ import asyncio
 import inspect
 from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from dataclasses import dataclass, field
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from latawiec.components import Component, Navigate, render
@@ -82,6 +83,16 @@ def _wants_context(handler: Callable[..., Any], without: int) -> bool:
     return len(inspect.signature(handler).parameters) > without
 
 
+CachePolicy = Literal["static", "swr", "no-store"]
+
+# What each policy tells a shell's (or any HTTP) cache on GET /screens.
+_CACHE_HEADERS: dict[CachePolicy, str] = {
+    "static": "max-age=31536000, immutable",
+    "swr": "max-age=0, stale-while-revalidate=86400",
+    "no-store": "no-store",
+}
+
+
 class Latawiec(FastAPI):
     """An ASGI app that serves Latawiec screens; run it like any FastAPI app."""
 
@@ -91,6 +102,8 @@ class Latawiec(FastAPI):
         tabs: Sequence[Tab] = (),
         theme: Theme | None = None,
         login: str | None = None,
+        version: str | None = None,
+        dev: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -98,11 +111,17 @@ class Latawiec(FastAPI):
         self.theme = theme or Theme()
         self.login = login
         """Screen the shells show when the server answers 401/4401."""
+        self.version = version
+        """Content version; a change tells the shells to drop cached screens."""
+        self.dev = dev
+        """Dev keeps the live-reload sockets; deploy with dev=False so shells
+        fetch screens over GET and cache them per policy."""
         self._auth: AuthHandler | None = None
         self._screens: dict[str, tuple[ScreenBuilder, bool]] = {}
         self._actions: dict[str, tuple[ActionHandler, bool]] = {}
         self._public_screens: set[str] = set()
         self._public_actions: set[str] = set()
+        self._cache: dict[str, CachePolicy] = {}
         self.add_api_route("/manifest", self._manifest)
         # :path, so screen names like "product/42" keep their slashes.
         self.add_api_route("/screens/{name:path}", self._screen_payload)
@@ -127,7 +146,11 @@ class Latawiec(FastAPI):
         return handler
 
     def screen(
-        self, name: str, *, public: bool = False
+        self,
+        name: str,
+        *,
+        public: bool = False,
+        cache: CachePolicy | None = None,
     ) -> Callable[[ScreenBuilder], ScreenBuilder]:
         """Register a screen; a {placeholder} as a whole path segment
         captures that segment as a param.
@@ -135,12 +158,19 @@ class Latawiec(FastAPI):
         The builder may take no arguments, or one `Context` with `ctx.user`
         and `ctx.params` — e.g. @app.screen("product/{id}") receives
         ctx.params["id"] when the shell navigates to "product/42".
+
+        `cache` steers the shells' screen cache: "static" lives until the
+        app version changes, "swr" (the default) renders from cache and
+        revalidates, "no-store" never touches disk — which is also the
+        default for guarded screens once auth is registered.
         """
 
         def register(builder: ScreenBuilder) -> ScreenBuilder:
             self._screens[name] = (builder, _wants_context(builder, without=0))
             if public:
                 self._public_screens.add(name)
+            if cache is not None:
+                self._cache[name] = cache
             return builder
 
         return register
@@ -182,6 +212,15 @@ class Latawiec(FastAPI):
         if not isinstance(component, Component):
             component = asyncio.run(cast("Coroutine[Any, Any, Component]", component))
         return render(component)
+
+    def _cache_policy(self, template: str) -> CachePolicy:
+        explicit = self._cache.get(template)
+        if explicit is not None:
+            return explicit
+        # Guarded content stays off disk unless the app opts in.
+        if self._auth is not None and template not in self._public_screens:
+            return "no-store"
+        return "swr"
 
     def _resolve(self, name: str) -> tuple[str, dict[str, str]] | None:
         """Match a requested path to a registered name; exact names win."""
@@ -235,13 +274,15 @@ class Latawiec(FastAPI):
             ],
             "theme": {"accent": self.theme.accent},
             "login": self.login,
+            "version": self.version,
+            "dev": self.dev,
         }
 
     async def _screen_payload(
         self,
         name: str,
         authorization: Annotated[str | None, Header()] = None,
-    ) -> dict[str, Any]:
+    ) -> JSONResponse:
         resolved = self._resolve(name)
         template = resolved[0] if resolved else None
         allowed, user = await self._access(template, self._public_screens, authorization)
@@ -253,7 +294,11 @@ class Latawiec(FastAPI):
             )
         if resolved is None:
             raise HTTPException(status_code=404, detail=f"no screen named {name!r}")
-        return await self._render(resolved[0], resolved[1], user)
+        template = resolved[0]
+        return JSONResponse(
+            content=await self._render(template, resolved[1], user),
+            headers={"Cache-Control": _CACHE_HEADERS[self._cache_policy(template)]},
+        )
 
     async def _action_result(
         self,
