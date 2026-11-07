@@ -92,8 +92,116 @@ def test_nested_input_variables_are_hoisted_to_the_card() -> None:
 
 
 def test_conflicting_variable_initials_are_rejected() -> None:
-    with pytest.raises(ValueError, match="conflicting initial values"):
+    with pytest.raises(ValueError, match="conflicting types or initial values"):
         lt.render(lt.Column(lt.TextInput("name", initial="a"), lt.TextInput("name")))
+
+
+def test_conflicting_variable_types_are_rejected() -> None:
+    with pytest.raises(ValueError, match="conflicting types or initial values"):
+        lt.render(lt.Column(lt.TextInput("flag"), lt.Switch("flag")))
+
+
+def test_switch_binds_a_boolean_variable() -> None:
+    card = lt.render(lt.Switch("dark", initial=True))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {
+        "type": "switch",
+        "is_on_variable": "dark",
+        "width": {"type": "wrap_content"},
+    }
+    assert card["card"]["variables"] == [{"type": "boolean", "name": "dark", "value": True}]
+
+
+def test_select_renders_options_and_binds_a_string_variable() -> None:
+    card = lt.render(
+        lt.Select("size", options=("Small", lt.Option("Medium", "m")), hint="Size", initial="m")
+    )
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {
+        "type": "select",
+        "value_variable": "size",
+        "options": [
+            {"text": "Small", "value": "Small"},
+            {"text": "Medium", "value": "m"},
+        ],
+        "hint_text": "Size",
+        "accessibility": {"description": "Size"},
+        "paddings": {"top": 12, "right": 16, "bottom": 12, "left": 16},
+        "border": {"corner_radius": 8, "stroke": {"color": "#B0BEC5"}},
+    }
+    assert card["card"]["variables"] == [{"type": "string", "name": "size", "value": "m"}]
+
+
+def test_select_keeps_an_explicit_empty_option_value() -> None:
+    card = lt.render(lt.Select("size", options=(lt.Option("None", ""),)))
+
+    options = card["card"]["states"][0]["div"]["options"]
+    assert options == [{"text": "None", "value": ""}]
+
+
+def test_slider_draws_thumb_and_tracks_and_binds_an_integer_variable() -> None:
+    card = lt.render(lt.Slider("volume", min=1, max=10, color="#00695C"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {
+        "type": "slider",
+        "thumb_value_variable": "volume",
+        "min_value": 1,
+        "max_value": 10,
+        "thumb_style": {
+            "type": "shape_drawable",
+            "color": "#00695C",
+            "shape": {
+                "type": "rounded_rectangle",
+                "item_width": {"type": "fixed", "value": 24},
+                "item_height": {"type": "fixed", "value": 24},
+                "corner_radius": {"type": "fixed", "value": 12},
+            },
+        },
+        "track_active_style": {
+            "type": "shape_drawable",
+            "color": "#00695C",
+            "shape": {
+                "type": "rounded_rectangle",
+                "item_height": {"type": "fixed", "value": 4},
+            },
+        },
+        "track_inactive_style": {
+            "type": "shape_drawable",
+            "color": "#B0BEC5",
+            "shape": {
+                "type": "rounded_rectangle",
+                "item_height": {"type": "fixed", "value": 4},
+            },
+        },
+    }
+    assert card["card"]["variables"] == [{"type": "integer", "name": "volume", "value": 1}]
+
+
+def test_slider_initial_overrides_the_min_default() -> None:
+    card = lt.render(lt.Slider("volume", min=0, max=10, initial=7))
+
+    assert card["card"]["variables"] == [{"type": "integer", "name": "volume", "value": 7}]
+
+
+def test_mixed_control_variables_hoist_in_document_order() -> None:
+    card = lt.render(
+        lt.Column(
+            lt.Switch("dark"),
+            lt.Row(lt.TextInput("name")),
+            lt.Slider("volume", min=2),
+            lt.Select("size", options=("S",)),
+        )
+    )
+
+    assert card["card"]["variables"] == [
+        {"type": "boolean", "name": "dark", "value": False},
+        {"type": "string", "name": "name", "value": ""},
+        {"type": "integer", "name": "volume", "value": 2},
+        {"type": "string", "name": "size", "value": ""},
+    ]
 
 
 def test_screens_without_inputs_declare_no_variables() -> None:

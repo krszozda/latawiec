@@ -217,6 +217,105 @@ class TextInput(Component):
 
 
 @dataclass(frozen=True)
+class Switch(Component):
+    """An on/off toggle bound to a boolean screen variable.
+
+    Read it elsewhere with an expression: Text("@{dark}") shows true/false.
+    """
+
+    variable: str
+    initial: bool = False
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivSwitch(
+            is_on_variable=self.variable,
+            # DivKit's default width is match_parent, and a stretched switch
+            # is a fatal error on iOS (SwitchBlock is not resizable).
+            width=dv.DivWrapContentSize(),
+        )
+
+
+@dataclass(frozen=True)
+class Option:
+    """One Select choice; the stored value defaults to the label."""
+
+    label: str
+    value: str | None = None
+
+
+@dataclass(frozen=True)
+class Select(Component):
+    """A dropdown bound to a string screen variable."""
+
+    variable: str
+    options: tuple[Option | str, ...]
+    hint: str | None = None
+    initial: str = ""
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivSelect(
+            value_variable=self.variable,
+            options=[
+                dv.DivSelectOption(
+                    text=option.label,
+                    value=option.value if option.value is not None else option.label,
+                )
+                if isinstance(option, Option)
+                else dv.DivSelectOption(text=option, value=option)
+                for option in self.options
+            ],
+            hint_text=self.hint,
+            # Same trap as DivInput: without a description the control is
+            # invisible to screen readers (and to UI tests) on both platforms.
+            accessibility=dv.DivAccessibility(description=self.hint) if self.hint else None,
+            paddings=dv.DivEdgeInsets(top=12, bottom=12, left=16, right=16),
+            border=dv.DivBorder(corner_radius=8, stroke=dv.DivStroke(color="#B0BEC5")),
+        )
+
+
+def _track(color: str) -> dv.DivShapeDrawable:
+    return dv.DivShapeDrawable(
+        color=color,
+        shape=dv.DivRoundedRectangleShape(item_height=dv.DivFixedSize(value=4)),
+    )
+
+
+@dataclass(frozen=True)
+class Slider(Component):
+    """An integer slider bound to a screen variable; starts at `initial` or `min`.
+
+    DivKit renders no slider without explicit thumb and track drawables, so
+    this draws a round thumb and a 4dp track in `color`.
+    """
+
+    variable: str
+    min: int = 0
+    max: int = 100
+    initial: int | None = None
+    color: str = "#2962FF"
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivSlider(
+            thumb_value_variable=self.variable,
+            min_value=self.min,
+            max_value=self.max,
+            thumb_style=dv.DivShapeDrawable(
+                color=self.color,
+                shape=dv.DivRoundedRectangleShape(
+                    item_width=dv.DivFixedSize(value=24),
+                    item_height=dv.DivFixedSize(value=24),
+                    corner_radius=dv.DivFixedSize(value=12),
+                ),
+            ),
+            track_active_style=_track(self.color),
+            track_inactive_style=_track("#B0BEC5"),
+        )
+
+
+@dataclass(frozen=True)
 class Button(Component):
     """DivKit has no button primitive, so this is a tappable, button-styled text."""
 
@@ -264,22 +363,37 @@ class Row(_Container):
     _orientation = dv.DivContainerOrientation.HORIZONTAL
 
 
-def _screen_variables(root: Component) -> list[dv.StringVariable]:
+ScreenVariable = dv.StringVariable | dv.BooleanVariable | dv.IntegerVariable
+
+
+def _declared_variable(node: Component) -> tuple[str, ScreenVariable] | None:
+    if isinstance(node, TextInput | Select):
+        return node.variable, dv.StringVariable(name=node.variable, value=node.initial)
+    if isinstance(node, Switch):
+        return node.variable, dv.BooleanVariable(name=node.variable, value=node.initial)
+    if isinstance(node, Slider):
+        value = node.min if node.initial is None else node.initial
+        return node.variable, dv.IntegerVariable(name=node.variable, value=value)
+    return None
+
+
+def _screen_variables(root: Component) -> list[ScreenVariable]:
     # DivKit scopes a variable declared on an element to that element and its
-    # descendants, so an input's variable is hoisted to the card, where sibling
-    # expressions like Text("@{name}") can read it.
-    initials: dict[str, str] = {}
+    # descendants, so a control's variable is hoisted to the card, where
+    # sibling expressions like Text("@{name}") can read it.
+    declared: dict[str, ScreenVariable] = {}
     stack = [root]
     while stack:
         node = stack.pop()
-        if isinstance(node, TextInput):
-            if initials.setdefault(node.variable, node.initial) != node.initial:
+        if (found := _declared_variable(node)) is not None:
+            name, variable = found
+            if declared.setdefault(name, variable).dict() != variable.dict():
                 raise ValueError(
-                    f"variable {node.variable!r} is declared with conflicting initial values"
+                    f"variable {name!r} is declared with conflicting types or initial values"
                 )
-        elif isinstance(node, _Container):
+        if isinstance(node, _Container):
             stack.extend(reversed(node.children))
-    return [dv.StringVariable(name=name, value=value) for name, value in initials.items()]
+    return list(declared.values())
 
 
 def render(root: Component) -> dict[str, Any]:
