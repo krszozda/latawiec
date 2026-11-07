@@ -3,10 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Cleartext allowed because the dev loop talks plain http to a local server. -->
     <application
         android:label="Latawiec"
-        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
         <activity
             android:name=".MainActivity"

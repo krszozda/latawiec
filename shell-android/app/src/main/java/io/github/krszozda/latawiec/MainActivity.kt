@@ -28,7 +28,7 @@ import com.yandex.div.core.view2.Div2View
 import com.yandex.div.data.DivParsingEnvironment
 import com.yandex.div.json.ParsingErrorLogger
 import com.yandex.div.json.expressions.ExpressionResolver
-import com.yandex.div.picasso.PicassoDivImageLoader
+import com.yandex.div.coil.CoilDivImageLoader
 import com.yandex.div2.DivAction
 import com.yandex.div2.DivData
 import java.io.IOException
@@ -46,6 +46,7 @@ import org.json.JSONObject
 
 private const val TAG = "Latawiec"
 private const val RECONNECT_DELAY_MS = 1_000L
+private const val RECONNECT_DELAY_MAX_MS = 30_000L
 
 /** The server's WebSocket close code for a missing or rejected token. */
 private const val NOT_AUTHORIZED = 4401
@@ -72,11 +73,13 @@ class MainActivity : AppCompatActivity() {
     /** Navigation history; the screen on top is the one on display. */
     private val screenStack = ArrayDeque<String>()
 
+    private var reconnectDelayMs = RECONNECT_DELAY_MS
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tokenStore = TokenStore(this)
         token = tokenStore.load()
-        val configuration = DivConfiguration.Builder(PicassoDivImageLoader(this))
+        val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
             .build()
         divView = Div2View(Div2Context(this, configuration))
@@ -126,6 +129,7 @@ class MainActivity : AppCompatActivity() {
             authorized(Request.Builder().url(url)).build(),
             object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
+                    reconnectDelayMs = RECONNECT_DELAY_MS
                     val data = parseCard(JSONObject(text))
                     divView.post {
                         if (webSocket == socket) {
@@ -157,11 +161,13 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    // Backs off while the server stays away; a delivered screen resets it.
     private fun reconnect(name: String) {
         divView.postDelayed(
             { if (!isDestroyed && name == screenStack.lastOrNull()) connect(name) },
-            RECONNECT_DELAY_MS,
+            reconnectDelayMs,
         )
+        reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_DELAY_MAX_MS)
     }
 
     private fun authorized(builder: Request.Builder): Request.Builder {

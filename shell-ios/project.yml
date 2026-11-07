@@ -23,10 +23,10 @@ targets:
       path: Info.plist
       properties:
         UILaunchScreen: {}
-        # A dev shell talking to a plain-HTTP dev server, like the Android
-        # shell's usesCleartextTraffic.
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          # The dev loop talks plain http/ws to a local server; anything
+          # beyond the local network must use TLS.
+          NSAllowsLocalNetworking: true
   LatawiecShellUITests:
     type: bundle.ui-testing
     platform: iOS

@@ -21,6 +21,7 @@ final class ScreenViewController: UIViewController {
     )
     private lazy var divView = DivView(divKitComponents: components)
     private var socket: URLSessionWebSocketTask?
+    private var reconnectDelay: TimeInterval = 1
 
     init(screen: String) {
         self.screen = screen
@@ -71,6 +72,7 @@ final class ScreenViewController: UIViewController {
             guard let self, task === self.socket else { return }
             switch result {
             case let .success(message):
+                self.reconnectDelay = 1
                 if case let .string(text) = message, let data = text.data(using: .utf8) {
                     Task { @MainActor in
                         await self.divView.setSource(
@@ -86,7 +88,11 @@ final class ScreenViewController: UIViewController {
                     return
                 }
                 log.warning("socket for \(self.screen) failed: \(String(describing: error))")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                // Backs off while the server stays away; a delivered screen
+                // resets it.
+                let delay = self.reconnectDelay
+                self.reconnectDelay = min(delay * 2, 30)
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     self?.connect()
                 }
             }
