@@ -24,7 +24,9 @@ and `shell-ios/`.
 - When `shell-android/` changed, it must also build: `./gradlew :app:assembleDebug`.
 - When `shell-ios/` changed, it must also build: `xcodegen generate && xcodebuild
   -project LatawiecShell.xcodeproj -scheme LatawiecShell -destination
-  'generic/platform=iOS Simulator' build` in `shell-ios/`. The UI smoke test
-  (`xcodebuild test` on a booted simulator) needs `examples.hello` served locally.
+  'generic/platform=iOS Simulator' build` in `shell-ios/`. The UI tests
+  (`xcodebuild test` on a booted simulator; `connectedDebugAndroidTest` on a
+  running emulator) need two servers from `sdk-python/`: `examples.hello` on
+  port 8000 and `examples.tabs` on port 8001.
 - DivKit APIs are verified against the published artifacts (javap on the Android AAR
   classes, the tagged divkit-ios sources) before use, not written from memory.

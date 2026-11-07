@@ -8,6 +8,8 @@ final class SmokeTests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Hello from Python"].waitForExistence(timeout: 10))
+        // A server without tabs keeps the plain single-stack shell.
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
 
         app.staticTexts["Greeter"].tap()
         // DivKit hides the inner text view from the accessibility tree, so the
