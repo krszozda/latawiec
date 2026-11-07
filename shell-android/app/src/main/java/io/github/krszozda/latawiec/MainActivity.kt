@@ -64,8 +64,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var divView: Div2View
     private lateinit var bottomBar: BottomNavigationView
     private lateinit var tokenStore: TokenStore
+    private lateinit var screenCache: ScreenCache
     private var socket: WebSocket? = null
     private var token: String? = null
+
+    /** Dev keeps the live-reload socket; production fetches and caches. */
+    private var devMode = true
 
     /** Screen from the manifest to show when the server answers 401/4401. */
     private var loginScreen: String? = null
@@ -79,6 +83,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         tokenStore = TokenStore(this)
         token = tokenStore.load()
+        screenCache = ScreenCache(this)
         val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
             .build()
@@ -97,7 +102,7 @@ class MainActivity : AppCompatActivity() {
                 override fun handleOnBackPressed() {
                     if (screenStack.size > 1) {
                         screenStack.removeLast()
-                        connect(screenStack.last())
+                        open(screenStack.last())
                     } else {
                         finish()
                     }
@@ -111,6 +116,63 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         socket?.cancel()
         super.onDestroy()
+    }
+
+    private fun open(name: String) {
+        if (devMode) connect(name) else fetchScreen(name)
+    }
+
+    /**
+     * Production path: render the last-known screen from disk right away,
+     * then revalidate over GET and swap in the fresh payload — unless the
+     * cached copy is "static", which lives until the manifest version moves.
+     */
+    private fun fetchScreen(name: String) {
+        val cached = screenCache.load(name)
+        if (cached != null) {
+            render(name, cached.payload)
+            if (cached.policy == "static") return
+        }
+        val request = authorized(Request.Builder().url("$serverUrl/screens/$name")).build()
+        http.newCall(request).enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    // With a cached copy on screen this is offline mode.
+                    Log.w(TAG, "screen $name fetch failed: $e")
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (it.code == 401) {
+                            divView.post { if (!isDestroyed) onUnauthorized() }
+                            return
+                        }
+                        if (!it.isSuccessful) {
+                            Log.w(TAG, "screen $name answered HTTP ${it.code}")
+                            return
+                        }
+                        val payload = it.body?.string() ?: return
+                        val header = it.header("Cache-Control").orEmpty()
+                        val policy = when {
+                            "no-store" in header -> "no-store"
+                            "immutable" in header -> "static"
+                            else -> "swr"
+                        }
+                        if (policy != "no-store") screenCache.store(name, policy, payload)
+                        render(name, payload)
+                    }
+                }
+            },
+        )
+    }
+
+    private fun render(name: String, payload: String) {
+        val data = parseCard(JSONObject(payload))
+        divView.post {
+            if (!isDestroyed && name == screenStack.lastOrNull()) {
+                divView.setData(data, DivDataTag(name))
+            }
+        }
     }
 
     /**
@@ -204,7 +266,15 @@ class MainActivity : AppCompatActivity() {
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     Log.w(TAG, "manifest fetch failed: $e")
-                    divView.post { if (!isDestroyed) showRoot("home") }
+                    // Offline boot runs on the last manifest the shell saw.
+                    val remembered = screenCache.loadManifest()?.let {
+                        try {
+                            JSONObject(it)
+                        } catch (parse: JSONException) {
+                            null
+                        }
+                    }
+                    divView.post { if (!isDestroyed) applyManifest(remembered) }
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -229,6 +299,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyManifest(manifest: JSONObject?) {
         loginScreen = manifest?.opt("login") as? String
+        if (manifest != null) {
+            devMode = manifest.optBoolean("dev", true)
+            screenCache.adoptVersion(manifest.opt("version") as? String)
+            screenCache.storeManifest(manifest.toString())
+        }
         val tabs = manifest?.optJSONArray("tabs")
         if (tabs == null || tabs.length() == 0) {
             showRoot("home")
@@ -319,14 +394,14 @@ class MainActivity : AppCompatActivity() {
     private fun showRoot(name: String) {
         screenStack.clear()
         screenStack.addLast(name)
-        connect(name)
+        open(name)
     }
 
     private fun showScreen(name: String) {
         // A double-tap would stack the same screen twice and break back.
         if (name != screenStack.lastOrNull()) {
             screenStack.addLast(name)
-            connect(name)
+            open(name)
         }
     }
 
