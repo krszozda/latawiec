@@ -32,3 +32,19 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: ./gradlew :app:assembleDebug --no-daemon
+
+  ios:
+    # VGSL (a DivKit dependency) needs the Swift toolchain of Xcode 26
+    # (SendableMetatype), which the macos-15 image does not carry.
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: shell-ios
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: >
+          xcodebuild -project LatawiecShell.xcodeproj -scheme LatawiecShell
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build

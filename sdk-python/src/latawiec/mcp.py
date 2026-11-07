@@ -44,9 +44,9 @@ App and server (Latawiec subclasses FastAPI):
 - @app.action(name) registers a Submit handler: it gets the submitted values
   as dict[str, str] and may return Navigate to send the shell onward.
 
-Dev loop: `uvicorn module:app --host 0.0.0.0 --reload` — the Android shell
-reconnects on every save and live-reloads the screen. System back walks the
-shell's screen stack.
+Dev loop: `uvicorn module:app --host 0.0.0.0 --reload` — the native shells
+(Android and iOS) reconnect on every save and live-reload the screen. System
+back walks the shell's screen stack.
 """
 
 

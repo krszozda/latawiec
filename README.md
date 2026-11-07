@@ -33,9 +33,10 @@ reconnects over WebSocket and renders the fresh screen — no rebuild, no reinst
 
 Early development, built in public. Working today: a small Python DSL (text, image,
 column/row, buttons, text inputs with on-device variables), a FastAPI server that exposes
-screens as DivKit card JSON, and an Android shell that renders screens from that server
-with live reload, real navigation, and forms — a Submit button POSTs the screen's values
-to a Python handler, which answers with where to go next. Not working yet: the iOS shell.
+screens as DivKit card JSON, and native shells for **Android and iOS** that render screens
+from that server with live reload, real navigation, and forms — a Submit button POSTs the
+screen's values to a Python handler, which answers with where to go next. The component
+set is still small, and nothing ships to the app stores for you yet.
 
 ## How it will work
 
@@ -47,7 +48,8 @@ Python DSL (sdk-python/)  →  DivKit JSON over HTTP/WebSocket  →  native shel
   [pydivkit](https://pypi.org/project/pydivkit/) and the FastAPI-based screen server.
 - **shell-android/** — a thin, fully native Kotlin app: DivKit renders whatever the server
   sends. No Flutter, no React Native, no webview.
-- **shell-ios/** (planned) — the same, in Swift.
+- **shell-ios/** — the same, in Swift (UIKit + DivKit); screens push onto a real
+  UINavigationController, so back is the system back.
 - **mcp** (the `latawiec[mcp]` extra) — an MCP server so coding agents can build and
   preview Latawiec apps; see "For coding agents" below.
 
@@ -77,6 +79,13 @@ emulator (the shell's default server URL is the emulator's host loopback):
 ```sh
 cd sdk-python && uv run uvicorn examples.hello:app --host 0.0.0.0 --reload
 cd shell-android && ./gradlew installDebug   # physical device: add -PserverUrl=http://<mac-ip>:8000
+```
+
+The iOS shell needs [XcodeGen](https://github.com/yonaskolb/XcodeGen) once
+(`brew install xcodegen`); the simulator reaches the same server on the Mac's loopback:
+
+```sh
+cd shell-ios && xcodegen generate && open LatawiecShell.xcodeproj   # run on a simulator
 ```
 
 Edit `examples/hello.py` while both are running and the phone follows your saves.

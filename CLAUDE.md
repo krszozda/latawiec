@@ -22,5 +22,9 @@ and `shell-ios/`.
 - Must pass before pushing (run in `sdk-python/`):
   `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run pytest`
 - When `shell-android/` changed, it must also build: `./gradlew :app:assembleDebug`.
-- DivKit APIs are verified against the published artifacts (javap on the AAR classes)
-  before use, not written from memory.
+- When `shell-ios/` changed, it must also build: `xcodegen generate && xcodebuild
+  -project LatawiecShell.xcodeproj -scheme LatawiecShell -destination
+  'generic/platform=iOS Simulator' build` in `shell-ios/`. The UI smoke test
+  (`xcodebuild test` on a booted simulator) needs `examples.hello` served locally.
+- DivKit APIs are verified against the published artifacts (javap on the Android AAR
+  classes, the tagged divkit-ios sources) before use, not written from memory.

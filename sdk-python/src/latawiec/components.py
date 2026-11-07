@@ -101,6 +101,9 @@ class TextInput(Component):
         return dv.DivInput(
             text_variable=self.variable,
             hint_text=self.hint,
+            # Without a description the input is invisible to screen readers
+            # (and to UI tests) on both platforms.
+            accessibility=dv.DivAccessibility(description=self.hint) if self.hint else None,
             paddings=dv.DivEdgeInsets(top=12, bottom=12, left=16, right=16),
             border=dv.DivBorder(corner_radius=8, stroke=dv.DivStroke(color="#B0BEC5")),
         )
