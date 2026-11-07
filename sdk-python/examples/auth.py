@@ -19,8 +19,8 @@ TOKEN = secrets.token_urlsafe(16)
 
 
 @app.auth
-def check(token: str | None) -> bool:
-    return token == TOKEN
+def check(token: str | None) -> str | None:
+    return "friend" if token == TOKEN else None
 
 
 @app.screen("signin", public=True)
@@ -44,8 +44,8 @@ def sign_in(values: dict[str, str]) -> lt.Grant | None:
 
 
 @app.screen("home")
-def home() -> lt.Component:
+def home(ctx: lt.Context) -> lt.Component:
     return lt.Column(
         lt.Text("Signed in", size=28, weight="bold", style=lt.Style(margin=48)),
-        lt.Text("Only a valid token renders this screen.", style=lt.Style(margin=16)),
+        lt.Text(f"Hello, {ctx.user} — only a valid token renders this.", style=lt.Style(margin=16)),
     )
