@@ -49,8 +49,8 @@ Components:
 - Tabs(("Title", component), ...)  # in-screen tabs; the native bottom bar is
   Latawiec(tabs=[...])
 - Video(url, autoplay=False, loop=False, muted=False), GifImage(url)
-  # Video plays on iOS out of the box; the Android shell ships no player yet
-  # (a bundled player would blow the APK size budget) and shows an empty area
+  # Video plays through the platform player on both shells (AVPlayer /
+  # MediaPlayer): MP4 and HLS, not DASH/DRM — those need a custom factory
 - Separator(color="#B0BEC5"), Spacer(height=N) or Spacer(width=N)
 - render(component) -> DivKit card dict (what a shell consumes)
 
