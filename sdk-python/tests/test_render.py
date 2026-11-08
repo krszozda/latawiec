@@ -598,3 +598,17 @@ def test_tap_feedback_names_pass_through_and_slide_pins_its_default_edge() -> No
     div = card["card"]["states"][0]["div"]
     assert div["action_animation"] == {"name": "scale"}
     assert div["transition_in"] == {"type": "slide", "duration": 300, "edge": "bottom"}
+
+
+def test_image_picker_declares_its_variable_and_toggles_preview() -> None:
+    card = lt.render(lt.ImagePicker("photo", label="Add one", height=120))
+
+    assert card["card"]["variables"] == [{"type": "string", "name": "photo", "value": ""}]
+    div = card["card"]["states"][0]["div"]
+    assert div["actions"] == [{"log_id": "pick", "url": "latawiec://pick?variable=photo"}]
+    placeholder, preview = div["items"]
+    assert placeholder["text"] == "Add one"
+    assert placeholder["visibility"] == "@{photo == '' ? 'visible' : 'gone'}"
+    assert preview["image_url"] == "@{photo}"
+    assert preview["visibility"] == "@{photo != '' ? 'visible' : 'gone'}"
+    assert preview["height"] == {"type": "fixed", "value": 120}

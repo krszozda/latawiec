@@ -65,6 +65,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
 - Animations in `Style`: `appear=Fade()` / `Slide()` / `Grow()`, `disappear`,
   `move=N` for layout shifts — they fire on live refreshes too, so streamed
   content glides in instead of popping
+- Photo uploads: `ImagePicker("photo")` opens the system gallery, ships the
+  pick to your `@app.upload` handler, and previews whatever URL it returns —
+  `Submit` then forwards it like any other variable
 
 What it lacks is mileage: no third-party apps in production yet.
 

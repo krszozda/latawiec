@@ -40,6 +40,10 @@ Components:
 - Select(variable, options=("S", Option("Medium", "m")), hint=None, initial="")
   # options: strings, or Option(label, value) when they differ
 - Slider(variable, min=0, max=100, initial=None, color="#2962FF")  # integer variable
+- ImagePicker(variable, label="Choose a photo", height=160)  # tap opens the
+  system gallery; the shell uploads the pick to the app's @app.upload handler
+  and sets `variable` to its return value (typically a URL), which the
+  component previews and a Submit(send=(variable,)) forwards
 - Column(*children), Row(*children), Stack(*children)  # Stack overlaps; place
   children with Style align/align_vertical
 - Gallery(*children, horizontal=False, spacing=None)  # scrolling list
@@ -97,6 +101,10 @@ App and server (Latawiec subclasses FastAPI):
   app.refresh(name) re-renders it for every phone showing it (per-user ctx) —
   refresh fast and that is streaming. @app.screen(..., refresh=N) is the
   cheap variant: the shell refetches every N seconds while on display.
+- @app.upload registers the file sink: it gets an Upload(name, content_type,
+  data: bytes) plus optional ctx and returns the string the picker's variable
+  is set to. Respects @app.auth; bodies over max_upload_mb (Latawiec arg,
+  default 10) answer 413.
 - @app.device registers the push-token sink (token, optional ctx) and turns
   push on; a push message's data "screen" key opens that screen on tap.
   Sending is the app's job (its own FCM/APNs credentials); docs/shipping.md

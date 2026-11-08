@@ -7,6 +7,7 @@ from typing import Any, ClassVar, Literal
 from urllib.parse import quote
 
 import pydivkit as dv
+from pydivkit.core import Expr
 
 Size = int | Literal["fill", "wrap"]
 HorizontalAlign = Literal["left", "center", "right"]
@@ -333,6 +334,50 @@ class Haptic:
 
 
 Action = Navigate | SetVariable | Submit | Share | OpenUrl | CopyToClipboard | Haptic | SignOut
+
+
+@dataclass(frozen=True)
+class ImagePicker(Component):
+    """A photo from the gallery, uploaded the moment it is picked.
+
+    Tapping opens the system photo picker; the shell uploads the choice to
+    the app's @app.upload handler and sets `variable` to whatever it
+    returned — typically a URL, which this component then previews and a
+    Submit(send=(variable,)) forwards like any other variable.
+    """
+
+    variable: str
+    label: str = "Choose a photo"
+    height: int = 160
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivContainer(
+            items=[
+                dv.DivText(
+                    text=self.label,
+                    visibility=Expr(f"@{{{self.variable} == '' ? 'visible' : 'gone'}}"),
+                    text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
+                ),
+                dv.DivImage(
+                    image_url=f"@{{{self.variable}}}",
+                    visibility=Expr(f"@{{{self.variable} != '' ? 'visible' : 'gone'}}"),
+                    width=dv.DivMatchParentSize(),
+                    height=dv.DivFixedSize(value=self.height),
+                    scale=dv.DivImageScale.FIT,
+                ),
+            ],
+            height=dv.DivFixedSize(value=self.height),
+            content_alignment_vertical=dv.DivContentAlignmentVertical.CENTER,
+            background=[dv.DivSolidBackground(color="#ECEFF1")],
+            border=dv.DivBorder(corner_radius=12),
+            actions=[
+                dv.DivAction(
+                    log_id="pick",
+                    url=f"latawiec://pick?variable={quote(self.variable, safe='')}",
+                )
+            ],
+        )
 
 
 @dataclass(frozen=True)
@@ -707,6 +752,8 @@ ScreenVariable = dv.StringVariable | dv.BooleanVariable | dv.IntegerVariable
 def _declared_variable(node: Component) -> tuple[str, ScreenVariable] | None:
     if isinstance(node, TextInput | Select):
         return node.variable, dv.StringVariable(name=node.variable, value=node.initial)
+    if isinstance(node, ImagePicker):
+        return node.variable, dv.StringVariable(name=node.variable, value="")
     if isinstance(node, Switch):
         return node.variable, dv.BooleanVariable(name=node.variable, value=node.initial)
     if isinstance(node, Slider):

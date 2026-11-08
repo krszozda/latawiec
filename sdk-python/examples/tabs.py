@@ -49,6 +49,29 @@ def form() -> lt.Component:
     )
 
 
+@app.upload
+def receive_photo(file: lt.Upload, ctx: lt.Context) -> str:
+    # The fixture only proves the round trip: echo a known image back, with
+    # the byte count in the query so tests can assert it arrived whole.
+    host = "10.0.2.2" if ctx.platform == "android" else "127.0.0.1"
+    return f"http://{host}:8001/assets/home.png?bytes={len(file.data)}"
+
+
+@app.screen("photo")
+def photo() -> lt.Component:
+    return lt.Column(
+        lt.Text("Pick a photo", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.ImagePicker("snap", style=lt.Style(margin=16)),
+        lt.Text("@{snap}", size=12, color="#757575", style=lt.Style(margin=16)),
+        lt.Button("Send it", on_tap=lt.Submit("keep", send=("snap",)), style=lt.Style(margin=16)),
+    )
+
+
+@app.action("keep")
+def keep(values: dict[str, str]) -> None:
+    pass
+
+
 @app.screen("system")
 def system(ctx: lt.Context) -> lt.Component:
     gutter = lt.Style(margin=lt.Edges(top=12, left=16, right=16))
