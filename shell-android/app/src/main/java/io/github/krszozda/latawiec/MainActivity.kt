@@ -1,5 +1,6 @@
 package io.github.krszozda.latawiec
 
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -9,6 +10,7 @@ import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
@@ -78,6 +80,13 @@ class MainActivity : AppCompatActivity() {
     /** Screen from the manifest to show when the server answers 401/4401. */
     private var loginScreen: String? = null
 
+    /** Tab root screens in bar order; a deep link to one selects its tab. */
+    private var tabRoots = emptyList<String>()
+
+    /** A deep link that arrived before the manifest; opened once it applies. */
+    private var pendingDeepLink: String? = null
+    private var manifestApplied = false
+
     /**
      * One view per screen, stacked like iOS's navigation controllers: popping
      * uncovers the previous view with its DivKit variables intact, instead of
@@ -112,7 +121,47 @@ class MainActivity : AppCompatActivity() {
             },
         )
 
+        // On recreation the task's root intent replays; the link opened once.
+        if (savedInstanceState == null) pendingDeepLink = intent.data?.let(::screenPath)
         fetchManifest()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val screen = intent.data?.let(::screenPath) ?: return
+        if (manifestApplied) openDeepLink(screen) else pendingDeepLink = screen
+    }
+
+    /**
+     * Maps a deep-link URI to a screen path. App Links carry the screen in
+     * the https path; a custom scheme starts it at the host, so
+     * "latawiec://product/42" opens the screen "product/42". The link is
+     * untrusted: one whose decoded segments could reshape the request path
+     * they end up in is dropped.
+     */
+    private fun screenPath(uri: Uri): String? {
+        val path = uri.path.orEmpty().trim('/')
+        val screen = when (uri.scheme?.lowercase()) {
+            "http", "https" -> path
+            else -> listOf(uri.host.orEmpty(), path).filter(String::isNotEmpty).joinToString("/")
+        }
+        if (screen.isEmpty()) return null
+        val segments = screen.split("/")
+        if (segments.any { it.isEmpty() || it == "." || it == ".." }) return null
+        return screen
+    }
+
+    /** A tab root selects its tab; any other screen pushes onto the stack. */
+    private fun openDeepLink(screen: String) {
+        val tab = tabRoots.indexOf(screen)
+        when {
+            tab < 0 -> showScreen(screen)
+            // Selecting the already-selected item only fires the (empty)
+            // reselected listener; the link still means "back to this root".
+            bottomBar.selectedItemId == tab -> showRoot(screen)
+            else -> bottomBar.selectedItemId = tab
+        }
     }
 
     override fun onDestroy() {
@@ -166,10 +215,19 @@ class MainActivity : AppCompatActivity() {
 
         private val divView = Div2View(div2Context)
         private val spinner = ProgressBar(context)
+
+        // Routed values ride in the name; encoding each segment keeps them
+        // from reshaping the request path (iOS encodes the same way).
+        private val encodedName = name.split("/").joinToString("/", transform = Uri::encode)
         private var socket: WebSocket? = null
         private var reconnectDelayMs = RECONNECT_DELAY_MS
 
         init {
+            // Screens stack on top of each other; without an opaque
+            // background the covered screen bleeds through.
+            val background = TypedValue()
+            context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
+            setBackgroundColor(background.data)
             addView(divView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(spinner, LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER))
         }
@@ -194,7 +252,7 @@ class MainActivity : AppCompatActivity() {
          */
         private fun connect() {
             socket?.cancel()
-            val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$name"
+            val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$encodedName"
             socket = http.newWebSocket(
                 authorized(Request.Builder().url(url)).build(),
                 object : WebSocketListener() {
@@ -242,7 +300,8 @@ class MainActivity : AppCompatActivity() {
                 render(cached.payload)
                 if (cached.policy == "static") return
             }
-            val request = authorized(Request.Builder().url("$serverUrl/screens/$name")).build()
+            val request =
+                authorized(Request.Builder().url("$serverUrl/screens/$encodedName")).build()
             http.newCall(request).enqueue(
                 object : Callback {
                     override fun onFailure(call: Call, e: IOException) {
@@ -348,7 +407,7 @@ class MainActivity : AppCompatActivity() {
                             null
                         }
                     }
-                    stackHost.post { if (!isDestroyed) applyManifest(remembered) }
+                    stackHost.post { if (!isDestroyed) boot(remembered) }
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -365,10 +424,20 @@ class MainActivity : AppCompatActivity() {
                             null
                         }
                     }
-                    stackHost.post { if (!isDestroyed) applyManifest(manifest) }
+                    stackHost.post { if (!isDestroyed) boot(manifest) }
                 }
             },
         )
+    }
+
+    /** The deep link that launched the shell waits for the manifest's tabs. */
+    private fun boot(manifest: JSONObject?) {
+        applyManifest(manifest)
+        manifestApplied = true
+        pendingDeepLink?.let {
+            pendingDeepLink = null
+            openDeepLink(it)
+        }
     }
 
     private fun applyManifest(manifest: JSONObject?) {
@@ -401,6 +470,7 @@ class MainActivity : AppCompatActivity() {
         val accent = manifest.optJSONObject("theme")?.optString("accent").orEmpty()
         if (accent.isNotEmpty()) tintBar(accent)
         bottomBar.selectedItemId = 0
+        tabRoots = tabScreens
         bottomBar.setOnItemSelectedListener { item ->
             showRoot(tabScreens[item.itemId])
             true
