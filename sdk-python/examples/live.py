@@ -58,3 +58,45 @@ def clock() -> lt.Component:
             style=lt.Style(margin=lt.Edges(left=16, right=16)),
         ),
     )
+
+
+# Keyed by platform: parallel Android and iOS test runs must not trample
+# each other's state.
+PULLS: dict[str, int] = {}
+
+
+@app.screen("pull", refreshable=True)
+def pull(ctx: lt.Context) -> lt.Component:
+    PULLS[ctx.platform] = PULLS.get(ctx.platform, 0) + 1
+    return lt.Gallery(
+        lt.Text(f"Pulled {PULLS[ctx.platform]}", size=28, weight="bold", style=lt.Style(margin=48)),
+        *[lt.Text(f"Row {i}", style=lt.Style(margin=lt.Edges(top=8, left=16))) for i in range(12)],
+    )
+
+
+ITEMS: dict[str, int] = {}
+
+
+@app.screen("feed", live=True)
+def feed(ctx: lt.Context) -> lt.Component:
+    n = ITEMS.get(ctx.platform, 10)
+    rows = [
+        lt.Text(f"Item {i + 1}", style=lt.Style(margin=lt.Edges(top=10, left=16))) for i in range(n)
+    ]
+    more = [lt.LoadMore("page")] if n < 40 else []
+    return lt.Gallery(
+        lt.Text("Feed", size=28, weight="bold", style=lt.Style(margin=48)),
+        *rows,
+        *more,
+    )
+
+
+@app.action("page")
+def page(values: dict[str, str], ctx: lt.Context) -> None:
+    ITEMS[ctx.platform] = min(ITEMS.get(ctx.platform, 10) + 10, 40)
+    app.refresh("feed")
+
+
+@app.action("reset_feed")
+def reset_feed(values: dict[str, str], ctx: lt.Context) -> None:
+    ITEMS[ctx.platform] = 10

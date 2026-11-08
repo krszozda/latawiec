@@ -848,3 +848,19 @@ def test_uploads_respect_auth_and_404_without_a_handler() -> None:
         headers={"Authorization": "Bearer sezam"},
     )
     assert allowed.status_code == 200
+
+
+def test_refreshable_screens_declare_themselves_in_a_header() -> None:
+    feed = lt.Latawiec()
+
+    @feed.screen("pull", refreshable=True)
+    def pull() -> lt.Component:
+        return lt.Text("x")
+
+    @feed.screen("plain")
+    def plain() -> lt.Component:
+        return lt.Text("y")
+
+    probe = TestClient(feed)
+    assert probe.get("/screens/pull").headers["x-latawiec-refreshable"] == "1"
+    assert "x-latawiec-refreshable" not in probe.get("/screens/plain").headers

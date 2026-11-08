@@ -612,3 +612,19 @@ def test_image_picker_declares_its_variable_and_toggles_preview() -> None:
     assert preview["image_url"] == "@{photo}"
     assert preview["visibility"] == "@{photo != '' ? 'visible' : 'gone'}"
     assert preview["height"] == {"type": "fixed", "value": 120}
+
+
+def test_load_more_fires_its_action_on_sight() -> None:
+    card = lt.render(lt.LoadMore("page", label="More…"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["text"] == "More…"
+    assert div["visibility_actions"] == [
+        {
+            "log_id": "more:page",
+            "url": "latawiec://submit?action=page",
+            "log_limit": 0,
+            "visibility_duration": 100,
+            "visibility_percentage": 1,
+        }
+    ]

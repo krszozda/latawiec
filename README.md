@@ -68,6 +68,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
 - Photo uploads: `ImagePicker("photo")` opens the system gallery, ships the
   pick to your `@app.upload` handler, and previews whatever URL it returns —
   `Submit` then forwards it like any other variable
+- Feed mechanics: `refreshable=True` gives a screen native pull-to-refresh,
+  and a `LoadMore("page")` sentinel at the end of a `Gallery` turns a live
+  screen into an infinite scroll
 
 What it lacks is mileage: no third-party apps in production yet.
 

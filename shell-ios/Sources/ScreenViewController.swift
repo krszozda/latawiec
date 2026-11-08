@@ -19,6 +19,9 @@ final class ScreenViewController: UIViewController {
     let screen: String
 
     private lazy var components = DivKitComponents(
+        // LoadMore rides a visibility action; without this flag DivKit
+        // swallows its URL instead of handing it to the handler below.
+        flagsInfo: DivFlagsInfo(useUrlHandlerForVisibilityActions: true),
         urlHandler: DivUrlHandlerDelegate { [weak self] url in self?.handle(url) }
     )
     private lazy var divView = DivView(divKitComponents: components)
@@ -32,6 +35,9 @@ final class ScreenViewController: UIViewController {
 
     /// Which screen variable the in-flight photo pick belongs to.
     private var pendingPickVariable: String?
+
+    private lazy var refresher = makeRefresher()
+    private var wantsRefresher = false
 
     init(screen: String) {
         self.screen = screen
@@ -92,7 +98,9 @@ final class ScreenViewController: UIViewController {
     private func fetchScreen() {
         // A response that outlives a sign-out wipe must not store.
         let asOf = ScreenCache.shared.generation
-        let cached = ScreenCache.shared.load(screen)
+        // Mid-pull the content is already on screen: rendering the cached
+        // copy would snap the indicator shut within a frame.
+        let cached = refresher.isRefreshing ? nil : ScreenCache.shared.load(screen)
         if let cached {
             show(data: cached.payload)
             if cached.policy == "static" { return }
@@ -112,6 +120,10 @@ final class ScreenViewController: UIViewController {
         let path = screen.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? screen
         guard let url = URL(string: "\(Server.url)/screens/\(path)") else { return }
         var request = URLRequest(url: url)
+        // URLSession heuristically caches 200s that carry no Cache-Control,
+        // which would serve a stale screen instead of hitting the server;
+        // freshness is ScreenCache's job.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         Auth.authorize(&request)
         let hadCache = cached != nil
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
@@ -122,6 +134,7 @@ final class ScreenViewController: UIViewController {
                 // screen keeps its rhythm.
                 log.warning("screen \(self.screen) fetch failed: \(String(describing: error))")
                 DispatchQueue.main.async {
+                    self.settleRefresher()
                     if hadCache { self.schedulePoll() } else { self.retryFetch() }
                 }
                 return
@@ -134,6 +147,7 @@ final class ScreenViewController: UIViewController {
             guard status == 200, let data else {
                 log.warning("screen \(self.screen) answered HTTP \(status)")
                 DispatchQueue.main.async {
+                    self.settleRefresher()
                     if hadCache { self.schedulePoll() } else { self.retryFetch() }
                 }
                 return
@@ -150,7 +164,11 @@ final class ScreenViewController: UIViewController {
             if policy != "no-store" {
                 ScreenCache.shared.store(self.screen, policy: policy, payload: data, asOf: asOf)
             }
-            self.show(data: data)
+            let refreshable = http?.value(forHTTPHeaderField: "X-Latawiec-Refreshable") != nil
+            DispatchQueue.main.async {
+                if refreshable { self.wantsRefresher = true }
+                self.show(data: data)
+            }
             if let fingerprint = http?.value(forHTTPHeaderField: "X-Latawiec-Manifest") {
                 // The chrome changed server-side (a tab appeared?).
                 DispatchQueue.main.async {
@@ -194,7 +212,60 @@ final class ScreenViewController: UIViewController {
                 shouldResetPreviousCardData: true
             )
             spinner.stopAnimating()
+            settleRefresher()
+            attachRefresherIfWanted()
         }
+    }
+
+    /// Ending a refresh is delicate twice over: endRefreshing() while the
+    /// finger still drags (routine against a fast server) corrupts the
+    /// control, and even one ended at rest can stop forwarding the pan
+    /// gesture, deadening every later pull. So wait for the gesture to
+    /// lift, then retire the control and mount a fresh one.
+    private func settleRefresher() {
+        guard refresher.isRefreshing else { return }
+        if let scroll = Self.firstScrollView(in: divView),
+           scroll.isTracking || scroll.isDragging {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.settleRefresher()
+            }
+            return
+        }
+        refresher.endRefreshing()
+        if let scroll = Self.firstScrollView(in: divView),
+           scroll.refreshControl === refresher {
+            scroll.refreshControl = nil
+        }
+        refresher = makeRefresher()
+        attachRefresherIfWanted()
+    }
+
+    private func makeRefresher() -> UIRefreshControl {
+        let control = UIRefreshControl()
+        control.addTarget(self, action: #selector(pulled), for: .valueChanged)
+        return control
+    }
+
+    /// The gesture rides the screen's own scrolling view (a Gallery): the
+    /// control attaches to the first scroll view DivKit rendered, and
+    /// re-attaches after every render in case that view was rebuilt.
+    private func attachRefresherIfWanted() {
+        guard wantsRefresher else { return }
+        guard let scroll = Self.firstScrollView(in: divView),
+              scroll.refreshControl !== refresher else { return }
+        scroll.refreshControl = refresher
+    }
+
+    @objc private func pulled() {
+        if Server.dev { connect() } else { fetchScreen() }
+    }
+
+    private static func firstScrollView(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView { return scroll }
+        for child in view.subviews {
+            if let found = firstScrollView(in: child) { return found }
+        }
+        return nil
     }
 
     private func connect() {

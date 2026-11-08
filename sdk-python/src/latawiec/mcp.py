@@ -47,6 +47,7 @@ Components:
 - Column(*children), Row(*children), Stack(*children)  # Stack overlaps; place
   children with Style align/align_vertical
 - Gallery(*children, horizontal=False, spacing=None)  # scrolling list
+- LoadMore(action)  # pagination sentinel, last child of a Gallery
 - Grid(*children, columns=N)  # fixed columns, row by row
 - Pager(*children, id=None, spacing=None) + Indicator(pager=id)  # swipeable
   pages with dots
@@ -97,6 +98,12 @@ App and server (Latawiec subclasses FastAPI):
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
 - @app.action(name) registers a Submit handler: it gets the submitted values
   as dict[str, str] and may return Navigate to send the shell onward.
+- @app.screen(..., refreshable=True) adds the pull-to-refresh gesture in
+  production (on iOS the screen's root must scroll, e.g. a Gallery).
+- LoadMore(action, label="Loading more…") is the infinite-scroll sentinel:
+  last in a Gallery, it submits `action` when scrolled into view; the handler
+  extends the data and calls app.refresh(), so pair it with live=True, and
+  render it only while there is more.
 - @app.screen(..., live=True) keeps the screen subscribed in production;
   app.refresh(name) re-renders it for every phone showing it (per-user ctx) —
   refresh fast and that is streaming. @app.screen(..., refresh=N) is the

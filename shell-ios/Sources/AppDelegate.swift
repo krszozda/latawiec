@@ -281,6 +281,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // unreachable host; fail fast and let the screen's socket reconnect.
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
+        // No Cache-Control on the response means URLSession may answer from
+        // its own cache, hiding a redeployed manifest behind a stale body.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             // Offline boot runs on the last manifest the shell saw.
             let raw = data ?? ScreenCache.shared.loadManifest()
