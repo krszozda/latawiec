@@ -34,9 +34,17 @@ Components:
 - Select(variable, options=("S", Option("Medium", "m")), hint=None, initial="")
   # options: strings, or Option(label, value) when they differ
 - Slider(variable, min=0, max=100, initial=None, color="#2962FF")  # integer variable
-- Column(*children), Row(*children)
+- Column(*children), Row(*children), Stack(*children)  # Stack overlaps; place
+  children with Style align/align_vertical
 - Gallery(*children, horizontal=False, spacing=None)  # scrolling list
 - Grid(*children, columns=N)  # fixed columns, row by row
+- Pager(*children, id=None, spacing=None) + Indicator(pager=id)  # swipeable
+  pages with dots
+- Tabs(("Title", component), ...)  # in-screen tabs; the native bottom bar is
+  Latawiec(tabs=[...])
+- Video(url, autoplay=False, loop=False, muted=False), GifImage(url)
+  # Video plays on iOS out of the box; the Android shell ships no player yet
+  # (a bundled player would blow the APK size budget) and shows an empty area
 - Separator(color="#B0BEC5"), Spacer(height=N) or Spacer(width=N)
 - render(component) -> DivKit card dict (what a shell consumes)
 

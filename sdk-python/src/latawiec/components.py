@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
@@ -365,6 +366,54 @@ class Row(_Container):
     _orientation = dv.DivContainerOrientation.HORIZONTAL
 
 
+class Stack(_Container):
+    """Children drawn on top of each other; place each with its Style
+    align/align_vertical."""
+
+    _orientation = dv.DivContainerOrientation.OVERLAP
+
+
+class Pager(_Container):
+    """Swipeable full-width pages; give it an id and point an Indicator
+    at it for dots."""
+
+    def __init__(
+        self,
+        *children: Component,
+        id: str | None = None,
+        spacing: int | None = None,
+        style: Style | None = None,
+    ) -> None:
+        super().__init__(*children, style=style)
+        self.id = id
+        self.spacing = spacing
+
+    def _build(self) -> dv.Div:
+        return dv.DivPager(
+            id=self.id,
+            item_spacing=dv.DivFixedSize(value=self.spacing) if self.spacing is not None else None,
+            layout_mode=dv.DivPageSize(page_width=dv.DivPercentageSize(value=100)),
+            items=[child.to_div() for child in self.children],
+        )
+
+
+class Tabs(_Container):
+    """Tabs inside a screen, each a (title, content) pair — distinct from
+    the app-level native bottom bar that Latawiec(tabs=...) declares."""
+
+    def __init__(self, *tabs: tuple[str, Component], style: Style | None = None) -> None:
+        super().__init__(*[content for _, content in tabs], style=style)
+        self._titles = [title for title, _ in tabs]
+
+    def _build(self) -> dv.Div:
+        return dv.DivTabs(
+            items=[
+                dv.DivTabsItem(title=title, div=content.to_div())
+                for title, content in zip(self._titles, self.children, strict=True)
+            ],
+        )
+
+
 class Gallery(_Container):
     """A scrolling list of children.
 
@@ -412,6 +461,55 @@ class Grid(_Container):
                 div.width = dv.DivWrapContentSize()
             items.append(div)
         return dv.DivGrid(column_count=self.columns, items=items)
+
+
+@dataclass(frozen=True)
+class Indicator(Component):
+    """Dots tracking the Pager whose id is `pager`."""
+
+    pager: str
+    color: str = "#2962FF"
+    inactive_color: str = "#B0BEC5"
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivIndicator(
+            pager_id=self.pager,
+            active_item_color=self.color,
+            inactive_item_color=self.inactive_color,
+        )
+
+
+@dataclass(frozen=True)
+class Video(Component):
+    """A video player fed by URL (iOS plays today; Android awaits a player)."""
+
+    url: str
+    autoplay: bool = False
+    loop: bool = False
+    muted: bool = False
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        # DivKit requires the mime type; derive it from the URL's extension.
+        mime, _ = mimetypes.guess_type(self.url)
+        return dv.DivVideo(
+            video_sources=[dv.DivVideoSource(url=self.url, mime_type=mime or "video/mp4")],
+            autostart=True if self.autoplay else None,
+            repeatable=True if self.loop else None,
+            muted=True if self.muted else None,
+        )
+
+
+@dataclass(frozen=True)
+class GifImage(Component):
+    """An animated GIF; plain Image shows only its first frame."""
+
+    url: str
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivGifImage(gif_url=self.url)
 
 
 @dataclass(frozen=True)

@@ -302,6 +302,89 @@ def test_control_variables_inside_collections_are_hoisted() -> None:
     assert card["card"]["variables"] == [{"type": "boolean", "name": "dark", "value": False}]
 
 
+def test_stack_overlaps_children() -> None:
+    card = lt.render(lt.Stack(lt.Image("https://x/photo.png"), lt.Text("badge")))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["type"] == "container"
+    assert div["orientation"] == "overlap"
+    assert [item["type"] for item in div["items"]] == ["image", "text"]
+
+
+def test_pager_pages_full_width_and_links_to_indicator() -> None:
+    card = lt.render(
+        lt.Column(
+            lt.Pager(lt.Text("one"), lt.Text("two"), id="intro", spacing=8),
+            lt.Indicator("intro", color="#00695C"),
+        )
+    )
+
+    pager, indicator = card["card"]["states"][0]["div"]["items"]
+    assert pager == {
+        "type": "pager",
+        "id": "intro",
+        "item_spacing": {"type": "fixed", "value": 8},
+        "layout_mode": {"type": "percentage", "page_width": {"type": "percentage", "value": 100.0}},
+        "items": [{"type": "text", "text": "one"}, {"type": "text", "text": "two"}],
+    }
+    assert indicator == {
+        "type": "indicator",
+        "pager_id": "intro",
+        "active_item_color": "#00695C",
+        "inactive_item_color": "#B0BEC5",
+    }
+
+
+def test_tabs_pair_titles_with_content() -> None:
+    card = lt.render(lt.Tabs(("One", lt.Text("a")), ("Two", lt.Text("b"))))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {
+        "type": "tabs",
+        "items": [
+            {"title": "One", "div": {"type": "text", "text": "a"}},
+            {"title": "Two", "div": {"type": "text", "text": "b"}},
+        ],
+    }
+
+
+def test_video_flags_are_emitted_only_when_set() -> None:
+    plain = lt.render(lt.Video("https://x/clip.mp4"))["card"]["states"][0]["div"]
+    assert plain == {
+        "type": "video",
+        "video_sources": [
+            {"type": "video_source", "url": "https://x/clip.mp4", "mime_type": "video/mp4"}
+        ],
+    }
+
+    looped = lt.render(lt.Video("https://x/clip.mp4", autoplay=True, loop=True, muted=True))
+    div = looped["card"]["states"][0]["div"]
+    assert div["autostart"] is True
+    assert div["repeatable"] is True
+    assert div["muted"] is True
+
+
+def test_gif_image_renders_to_divkit_gif() -> None:
+    card = lt.render(lt.GifImage("https://x/anim.gif"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div == {"type": "gif", "gif_url": "https://x/anim.gif"}
+
+
+def test_variables_hoist_through_stack_pager_and_tabs() -> None:
+    card = lt.render(
+        lt.Stack(
+            lt.Pager(lt.Switch("dark"), id="p"),
+            lt.Tabs(("T", lt.TextInput("name"))),
+        )
+    )
+
+    assert card["card"]["variables"] == [
+        {"type": "boolean", "name": "dark", "value": False},
+        {"type": "string", "name": "name", "value": ""},
+    ]
+
+
 def test_render_wraps_root_in_card_envelope() -> None:
     card = lt.render(lt.Text("x"))
 
