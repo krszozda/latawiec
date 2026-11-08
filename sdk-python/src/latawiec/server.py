@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
+import json
 import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -500,8 +502,7 @@ class Latawiec(FastAPI):
             return True, user
         return user is not None, user
 
-    async def _manifest(self) -> dict[str, Any]:
-        """App-level chrome the shells read once at startup: tabs, theme, login."""
+    def _manifest_payload(self) -> dict[str, Any]:
         return {
             "tabs": [
                 {"screen": tab.screen, "title": tab.title, "icon": tab.icon} for tab in self.tabs
@@ -512,6 +513,28 @@ class Latawiec(FastAPI):
             "dev": self.dev,
             "push": self._device_handler is not None,
         }
+
+    def _manifest_hash(self, payload: dict[str, Any] | None = None) -> str:
+        """A fingerprint of the manifest as served right now.
+
+        It rides on every screen response, so a shell notices mid-session
+        that the tabs, theme, or login changed and refetches the manifest —
+        the chatbot that adds a Calendar tab needs no app restart.
+        """
+        if payload is None:
+            payload = self._manifest_payload()
+        canonical = json.dumps(payload, sort_keys=True)
+        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+    async def _manifest(self) -> JSONResponse:
+        """App-level chrome the shells read at startup: tabs, theme, login."""
+        # One payload for body and fingerprint: a concurrent tabs swap must
+        # not pin the old body to the new hash.
+        payload = self._manifest_payload()
+        return JSONResponse(
+            payload,
+            headers={"X-Latawiec-Manifest": self._manifest_hash(payload)},
+        )
 
     async def _screen_payload(
         self,
@@ -544,6 +567,8 @@ class Latawiec(FastAPI):
             headers["X-Latawiec-Live"] = "1"
         elif template in self._refresh:
             headers["X-Latawiec-Refresh"] = str(self._refresh[template])
+        # A changed fingerprint tells the shell to refetch the manifest.
+        headers["X-Latawiec-Manifest"] = self._manifest_hash()
         return JSONResponse(
             content=await self._render(template, resolved[1], user, _device(request.headers)),
             headers=headers,

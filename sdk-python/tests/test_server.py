@@ -785,3 +785,21 @@ def test_well_known_stays_public_under_auth() -> None:
     probe = TestClient(guarded)
     assert probe.get("/.well-known/assetlinks.json").status_code == 200
     assert probe.get("/.well-known/apple-app-site-association").status_code == 200
+
+
+def test_manifest_fingerprint_rides_on_screens_and_moves_with_the_tabs() -> None:
+    chrome = lt.Latawiec()
+
+    @chrome.screen("home")
+    def home() -> lt.Component:
+        return lt.Text("hi")
+
+    probe = TestClient(chrome)
+    fingerprint = probe.get("/manifest").headers["x-latawiec-manifest"]
+    assert probe.get("/screens/home").headers["x-latawiec-manifest"] == fingerprint
+
+    # The chatbot use case: a tab appears at runtime.
+    chrome.tabs = (lt.Tab("home", "Home"),)
+    moved = probe.get("/manifest").headers["x-latawiec-manifest"]
+    assert moved != fingerprint
+    assert probe.get("/screens/home").headers["x-latawiec-manifest"] == moved

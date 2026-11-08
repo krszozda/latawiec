@@ -63,6 +63,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     private var pendingDeepLink: String?
     private var manifestApplied = false
 
+    /// Fingerprint of the applied manifest; a mismatch means refetch.
+    private var manifestHash: String?
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -79,12 +82,30 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         self.window = window
         // Before anything is delivered, or a cold-start tap would be lost.
         UNUserNotificationCenter.current().delegate = self
+        // The chrome may change while the app is away; a foreground refetch
+        // picks it up (the same-tabs case leaves the stacks alone).
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.manifestApplied else { return }
+            self.loadManifest()
+        }
         if Server.url.isEmpty {
             askForServer()
         } else {
             loadManifest()
         }
         return true
+    }
+
+    /// A screen response carried a different manifest fingerprint: the
+    /// chrome changed server-side (a tab appeared?). Refetch once.
+    func manifestChanged(to fingerprint: String) {
+        guard manifestApplied, manifestHash != fingerprint else { return }
+        manifestHash = fingerprint
+        loadManifest()
     }
 
     /// The generic build ships without a server; the first start asks.
@@ -145,7 +166,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         token.map { String(format: "%02x", $0) }.joined()
     }
 
+    private var pushEnabled = false
+
     private func enablePush() {
+        // Manifest refreshes re-run this; registering once per launch is
+        // enough (token rotations redeliver through didRegister).
+        if pushEnabled { return }
+        pushEnabled = true
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
             guard granted else { return }
@@ -254,15 +281,24 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // unreachable host; fail fast and let the screen's socket reconnect.
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             // Offline boot runs on the last manifest the shell saw.
             let raw = data ?? ScreenCache.shared.loadManifest()
             let manifest = raw.flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
+            let fingerprint = (response as? HTTPURLResponse)?
+                .value(forHTTPHeaderField: "X-Latawiec-Manifest")
             DispatchQueue.main.async {
                 guard let self else { return }
+                // A redeploy blip mid-session must not nuke the chrome; a
+                // cleared hash retries on the next fingerprint/foreground.
+                if manifest == nil, raw == nil, self.manifestApplied {
+                    self.manifestHash = nil
+                    return
+                }
                 Auth.loginScreen = manifest?.login
                 if let manifest, let raw {
                     Server.dev = manifest.dev ?? true
+                    if let fingerprint { self.manifestHash = fingerprint }
                     // Cached screens may be rendered per locale, so a
                     // language change drops them exactly like a version bump.
                     let languages = Locale.preferredLanguages.joined(separator: ",")
@@ -270,8 +306,26 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                     ScreenCache.shared.storeManifest(raw)
                 }
                 if let manifest, !manifest.tabs.isEmpty {
-                    self.tabScreens = manifest.tabs.map(\.screen)
-                    self.window?.rootViewController = Self.tabBarController(for: manifest)
+                    let roots = manifest.tabs.map(\.screen)
+                    // The same roots re-applied mid-session must not reset
+                    // the stacks: refresh what the bar shows, in place.
+                    if roots == self.tabScreens,
+                       let tabBar = self.window?.rootViewController as? UITabBarController,
+                       let controllers = tabBar.viewControllers {
+                        for (index, tab) in manifest.tabs.enumerated()
+                        where index < controllers.count {
+                            controllers[index].tabBarItem.title = tab.title
+                            if let icon = tab.icon {
+                                Self.loadIcon(at: icon, into: controllers[index].tabBarItem)
+                            }
+                        }
+                        if let accent = manifest.theme.flatMap({ Self.color(hex: $0.accent) }) {
+                            tabBar.tabBar.tintColor = accent
+                        }
+                    } else {
+                        self.tabScreens = roots
+                        self.window?.rootViewController = Self.tabBarController(for: manifest)
+                    }
                 } else {
                     if manifest == nil {
                         // A typed address that never answered once is most
@@ -282,7 +336,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                         }
                         log.warning("manifest unavailable; falling back to home")
                     }
-                    self.window?.rootViewController = Self.fallbackRoot()
+                    // Re-applied mid-session with the same (lack of) tabs:
+                    // the stack the user is in stays put.
+                    if !(self.manifestApplied && self.tabScreens.isEmpty
+                        && self.window?.rootViewController is UINavigationController) {
+                        self.tabScreens = []
+                        self.window?.rootViewController = Self.fallbackRoot()
+                    }
                 }
                 self.manifestApplied = true
                 if let screen = self.pendingDeepLink {

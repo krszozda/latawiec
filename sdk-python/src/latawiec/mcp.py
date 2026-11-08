@@ -102,7 +102,10 @@ App and server (Latawiec subclasses FastAPI):
   bottom bar, chrome colors, the screen shown on 401, the content version (a
   change tells shells to drop cached screens), and dev mode (deploy with
   dev=False: shells then fetch screens over GET and cache them); shells read
-  GET /manifest. app_links=AppLinks(android_package, android_fingerprints,
+  GET /manifest. app.tabs/theme/login may be reassigned at runtime: a
+  fingerprint on every response lets the shells pick the new chrome up
+  mid-session (add a tab from a handler and the bar rebuilds, no restart).
+  app_links=AppLinks(android_package, android_fingerprints,
   ios_app_id) makes the server serve both /.well-known ownership files, so
   https links open the app (App Links / Universal Links).
 - @app.screen(name, cache="static" | "swr" | "no-store") steers the shells'
