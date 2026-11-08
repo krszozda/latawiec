@@ -188,10 +188,29 @@ final class ScreenViewController: UIViewController {
             if let action = values.removeValue(forKey: "action") {
                 submit(action: action, values: values)
             }
+        case "share":
+            // Mid-animation double-taps would make the second present a
+            // silent no-op anyway; skip it deliberately.
+            if let text = queryValues(of: url)["text"], presentedViewController == nil {
+                let sheet = UIActivityViewController(
+                    activityItems: [text], applicationActivities: nil
+                )
+                present(sheet, animated: true)
+            }
+        case "open":
+            if let target = queryValues(of: url)["url"].flatMap(URL.init(string:)),
+               Self.openableSchemes.contains(target.scheme?.lowercased() ?? "") {
+                UIApplication.shared.open(target) { [weak self] opened in
+                    if !opened { self?.showError("Nothing can open this link") }
+                }
+            }
         default:
             break
         }
     }
+
+    /// What OpenUrl may leave the app for; anything else is refused.
+    private static let openableSchemes: Set<String> = ["http", "https", "mailto", "tel", "sms"]
 
     private func queryValues(of url: URL) -> [String: String] {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
