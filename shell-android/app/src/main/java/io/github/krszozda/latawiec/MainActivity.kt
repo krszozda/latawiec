@@ -1,5 +1,6 @@
 package io.github.krszozda.latawiec
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
@@ -56,6 +57,9 @@ private const val PUSH_ANIMATION_MS = 250L
 
 /** The server's WebSocket close code for a missing or rejected token. */
 private const val NOT_AUTHORIZED = 4401
+
+/** What OpenUrl may leave the app for; anything else is refused. */
+private val OPENABLE_SCHEMES = setOf("http", "https", "mailto", "tel", "sms")
 
 class MainActivity : AppCompatActivity() {
 
@@ -602,6 +606,28 @@ class MainActivity : AppCompatActivity() {
                     "submit" -> {
                         val name = url.getQueryParameter("action") ?: return false
                         submit(name, url)
+                        return true
+                    }
+
+                    "share" -> {
+                        val text = url.getQueryParameter("text") ?: return false
+                        val send = Intent(Intent.ACTION_SEND)
+                            .setType("text/plain")
+                            .putExtra(Intent.EXTRA_TEXT, text)
+                        startActivity(Intent.createChooser(send, null))
+                        return true
+                    }
+
+                    "open" -> {
+                        val target = url.getQueryParameter("url")?.let(Uri::parse) ?: return false
+                        if (target.scheme?.lowercase() !in OPENABLE_SCHEMES) return false
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, target))
+                        } catch (e: ActivityNotFoundException) {
+                            // The scheme only: a tel/mailto target is PII.
+                            Log.w(TAG, "nothing opens ${target.scheme} links", e)
+                            showError("Nothing can open this link")
+                        }
                         return true
                     }
                 }

@@ -29,6 +29,10 @@ Components:
 - Button(label, on_tap=..., color="#2962FF", text_color="#FFFFFF")
   # on_tap: Navigate(screen) | SetVariable(variable, value)
   #       | Submit(action, send=(variable, ...))
+  #       | Share(text) | OpenUrl(url) | CopyToClipboard(text)
+  #       | Haptic(feedback="light"|"medium"|"heavy"|"success"|"error")
+  #       | a tuple of the above, run in order: (Haptic("success"), Submit(...))
+  # OpenUrl leaves the app; shells follow http(s), mailto, tel, and sms only
 - TextInput(variable, hint=None, initial="", password=False)  # declares its variable
 - Switch(variable, initial=False)  # boolean variable
 - Select(variable, options=("S", Option("Medium", "m")), hint=None, initial="")

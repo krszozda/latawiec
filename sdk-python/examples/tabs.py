@@ -47,3 +47,15 @@ def form() -> lt.Component:
         lt.Text("Form tab", size=28, weight="bold", style=lt.Style(margin=48)),
         lt.TextInput("name", hint="Your name", style=lt.Style(margin=16)),
     )
+
+
+@app.screen("system")
+def system() -> lt.Component:
+    gutter = lt.Style(margin=lt.Edges(top=12, left=16, right=16))
+    return lt.Column(
+        lt.Text("System actions", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Button("Copy code", on_tap=lt.CopyToClipboard("kite-42"), style=gutter),
+        lt.Button("Share it", on_tap=lt.Share("Kites are great"), style=gutter),
+        lt.Button("Open the site", on_tap=lt.OpenUrl("https://example.com/"), style=gutter),
+        lt.Button("Buzz", on_tap=(lt.Haptic("success"), lt.Navigate("details")), style=gutter),
+    )

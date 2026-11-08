@@ -71,6 +71,50 @@ def test_submit_sends_variables_as_tap_time_expressions() -> None:
     }
 
 
+def test_share_puts_the_text_in_the_action_url() -> None:
+    card = lt.render(lt.Button("Share", on_tap=lt.Share("Kites & more")))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {"log_id": "share", "url": "latawiec://share?text=Kites%20%26%20more"}
+
+
+def test_open_url_wraps_the_target() -> None:
+    card = lt.render(lt.Button("Site", on_tap=lt.OpenUrl("https://example.com/a?b=1")))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "open",
+        "url": "latawiec://open?url=https%3A%2F%2Fexample.com%2Fa%3Fb%3D1",
+    }
+
+
+def test_copy_to_clipboard_is_a_typed_divkit_action() -> None:
+    card = lt.render(lt.Button("Copy", on_tap=lt.CopyToClipboard("kite-42")))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "copy",
+        "typed": {"type": "copy_to_clipboard", "content": {"type": "text", "value": "kite-42"}},
+    }
+
+
+def test_haptic_is_a_typed_divkit_action() -> None:
+    card = lt.render(lt.Button("Buzz", on_tap=lt.Haptic("success")))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "haptic:success",
+        "typed": {"type": "haptic", "feedback": "success"},
+    }
+
+
+def test_a_tap_can_run_several_actions_in_order() -> None:
+    card = lt.render(lt.Button("Send", on_tap=(lt.Haptic(), lt.Navigate("done"))))
+
+    actions = card["card"]["states"][0]["div"]["actions"]
+    assert [a["log_id"] for a in actions] == ["haptic:light", "navigate:done"]
+
+
 def test_text_input_binds_a_card_level_variable() -> None:
     card = lt.render(lt.TextInput("name", hint="Your name", initial="kite"))
 

@@ -189,7 +189,67 @@ class Submit:
         )
 
 
-Action = Navigate | SetVariable | Submit
+@dataclass(frozen=True)
+class Share:
+    """Tap action: open the system share sheet with the text."""
+
+    text: str
+
+    def to_div_action(self) -> dv.DivAction:
+        return dv.DivAction(
+            log_id="share",
+            url=f"latawiec://share?text={quote(self.text, safe='')}",
+        )
+
+
+@dataclass(frozen=True)
+class OpenUrl:
+    """Tap action: leave the app for the URL — browser, mail, or dialer.
+
+    The shells only follow http(s), mailto, tel, and sms links.
+    """
+
+    url: str
+
+    def to_div_action(self) -> dv.DivAction:
+        # Unlike a screen name, the target may be a tel/mailto URL — personal
+        # data that does not belong in an analytics log_id.
+        return dv.DivAction(
+            log_id="open",
+            url=f"latawiec://open?url={quote(self.url, safe='')}",
+        )
+
+
+@dataclass(frozen=True)
+class CopyToClipboard:
+    """Tap action: put the text on the clipboard (DivKit handles it natively)."""
+
+    text: str
+
+    def to_div_action(self) -> dv.DivAction:
+        return dv.DivAction(
+            log_id="copy",
+            typed=dv.DivActionCopyToClipboard(content=dv.ContentText(value=self.text)),
+        )
+
+
+@dataclass(frozen=True)
+class Haptic:
+    """Tap action: haptic feedback (DivKit handles it natively).
+
+    Pair it with another action: on_tap=(Haptic("success"), Submit(...)).
+    """
+
+    feedback: Literal["light", "medium", "heavy", "success", "error"] = "light"
+
+    def to_div_action(self) -> dv.DivAction:
+        return dv.DivAction(
+            log_id=f"haptic:{self.feedback}",
+            typed=dv.DivActionHaptic(feedback=dv.DivActionHapticFeedback(self.feedback)),
+        )
+
+
+Action = Navigate | SetVariable | Submit | Share | OpenUrl | CopyToClipboard | Haptic
 
 
 @dataclass(frozen=True)
@@ -323,12 +383,13 @@ class Button(Component):
     """DivKit has no button primitive, so this is a tappable, button-styled text."""
 
     label: str
-    on_tap: Action
+    on_tap: Action | tuple[Action, ...]
     color: str = "#2962FF"
     text_color: str = "#FFFFFF"
     style: Style | None = None
 
     def _build(self) -> dv.Div:
+        taps = self.on_tap if isinstance(self.on_tap, (tuple, list)) else (self.on_tap,)
         return dv.DivText(
             text=self.label,
             text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
@@ -336,7 +397,7 @@ class Button(Component):
             paddings=dv.DivEdgeInsets(top=12, bottom=12, left=20, right=20),
             background=[dv.DivSolidBackground(color=self.color)],
             border=dv.DivBorder(corner_radius=8),
-            actions=[self.on_tap.to_div_action()],
+            actions=[tap.to_div_action() for tap in taps],
         )
 
 
