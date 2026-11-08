@@ -84,6 +84,10 @@ App and server (Latawiec subclasses FastAPI):
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
 - @app.action(name) registers a Submit handler: it gets the submitted values
   as dict[str, str] and may return Navigate to send the shell onward.
+- @app.screen(..., live=True) keeps the screen subscribed in production;
+  app.refresh(name) re-renders it for every phone showing it (per-user ctx) —
+  refresh fast and that is streaming. @app.screen(..., refresh=N) is the
+  cheap variant: the shell refetches every N seconds while on display.
 - @app.device registers the push-token sink (token, optional ctx) and turns
   push on; a push message's data "screen" key opens that screen on tap.
   Sending is the app's job (its own FCM/APNs credentials); docs/shipping.md

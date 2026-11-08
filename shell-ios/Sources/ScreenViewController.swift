@@ -24,6 +24,10 @@ final class ScreenViewController: UIViewController {
     private var socket: URLSessionWebSocketTask?
     private var reconnectDelay: TimeInterval = 1
 
+    /// Poll interval of a refresh=N screen, from its response header.
+    private var pollSeconds: TimeInterval?
+    private var appeared = false
+
     init(screen: String) {
         self.screen = screen
         super.init(nibName: nil, bundle: nil)
@@ -85,6 +89,18 @@ final class ScreenViewController: UIViewController {
         if let cached {
             show(data: cached.payload)
             if cached.policy == "static" { return }
+            // A cached live screen subscribes straight away — the socket's
+            // backoff covers an unreachable server, and its first message
+            // is the fresh render.
+            if cached.policy == "live" {
+                DispatchQueue.main.async { self.connect() }
+                return
+            }
+            // The interval from the cache keeps a polled screen's rhythm
+            // even when the revalidation fetch fails.
+            if cached.policy.hasPrefix("poll:") {
+                pollSeconds = TimeInterval(cached.policy.dropFirst("poll:".count))
+            }
         }
         let path = screen.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? screen
         guard let url = URL(string: "\(Server.url)/screens/\(path)") else { return }
@@ -95,9 +111,12 @@ final class ScreenViewController: UIViewController {
             guard let self else { return }
             if let error {
                 // With a cached copy on screen this is offline mode; a blank
-                // screen keeps retrying on the socket's backoff.
+                // screen keeps retrying on the socket's backoff, and a polled
+                // screen keeps its rhythm.
                 log.warning("screen \(self.screen) fetch failed: \(String(describing: error))")
-                if !hadCache { DispatchQueue.main.async { self.retryFetch() } }
+                DispatchQueue.main.async {
+                    if hadCache { self.schedulePoll() } else { self.retryFetch() }
+                }
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -107,19 +126,51 @@ final class ScreenViewController: UIViewController {
             }
             guard status == 200, let data else {
                 log.warning("screen \(self.screen) answered HTTP \(status)")
-                if !hadCache { DispatchQueue.main.async { self.retryFetch() } }
+                DispatchQueue.main.async {
+                    if hadCache { self.schedulePoll() } else { self.retryFetch() }
+                }
                 return
             }
             self.reconnectDelay = 1
-            let header = (response as? HTTPURLResponse)?
-                .value(forHTTPHeaderField: "Cache-Control") ?? ""
+            let http = response as? HTTPURLResponse
+            let header = http?.value(forHTTPHeaderField: "Cache-Control") ?? ""
+            let live = http?.value(forHTTPHeaderField: "X-Latawiec-Live") != nil
+            let refresh = http?.value(forHTTPHeaderField: "X-Latawiec-Refresh")
             let policy = header.contains("no-store") ? "no-store"
-                : header.contains("immutable") ? "static" : "swr"
+                : header.contains("immutable") ? "static"
+                : live ? "live"
+                : refresh.map { "poll:\($0)" } ?? "swr"
             if policy != "no-store" {
                 ScreenCache.shared.store(self.screen, policy: policy, payload: data)
             }
             self.show(data: data)
+            if live {
+                // A live screen subscribes after its first render; every
+                // app.refresh() lands here.
+                DispatchQueue.main.async { self.connect() }
+            } else {
+                DispatchQueue.main.async {
+                    self.pollSeconds = refresh.flatMap(TimeInterval.init)
+                    self.schedulePoll()
+                }
+            }
         }.resume()
+    }
+
+    /// A covered polled screen stops ticking; coming back refetches now.
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if appeared, pollSeconds != nil { fetchScreen() }
+        appeared = true
+    }
+
+    /// Polled screens refetch on their interval while on display.
+    private func schedulePoll() {
+        guard let seconds = pollSeconds else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self, self.viewIfLoaded?.window != nil else { return }
+            self.fetchScreen()
+        }
     }
 
     private func show(data: Data) {
@@ -133,6 +184,8 @@ final class ScreenViewController: UIViewController {
     }
 
     private func connect() {
+        // A re-subscribe (live refetch) must not leak the previous socket.
+        socket?.cancel()
         let path = screen.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? screen
         var base = Server.url
         if let scheme = base.range(of: "http") {

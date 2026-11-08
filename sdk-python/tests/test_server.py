@@ -507,3 +507,140 @@ def test_device_registration_stays_public_but_learns_the_user() -> None:
     assert probe.post("/devices", json={"token": "t"}).status_code == 200
     probe.post("/devices", json={"token": "t"}, headers={"Authorization": "Bearer sezam"})
     assert seen == [None, "pat"]
+
+
+def _counter_app() -> tuple[lt.Latawiec, dict[str, int]]:
+    counter = {"n": 0}
+    live_app = lt.Latawiec()
+
+    @live_app.screen("counter", live=True)
+    def counter_screen() -> lt.Component:
+        return lt.Text(f"Count: {counter['n']}")
+
+    @live_app.screen("clock", refresh=5)
+    def clock() -> lt.Component:
+        return lt.Text("tick")
+
+    return live_app, counter
+
+
+def test_live_and_polled_screens_declare_themselves_in_headers() -> None:
+    live_app, _ = _counter_app()
+    with TestClient(live_app) as probe:
+        assert probe.get("/screens/counter").headers["x-latawiec-live"] == "1"
+        clock = probe.get("/screens/clock")
+        assert clock.headers["x-latawiec-refresh"] == "5"
+        assert "x-latawiec-live" not in clock.headers
+
+
+def test_refresh_pushes_a_fresh_render_to_subscribers() -> None:
+    live_app, counter = _counter_app()
+
+    # Sync handler: refresh crosses from the threadpool onto the loop.
+    @live_app.action("bump")
+    def bump(values: dict[str, str]) -> None:
+        counter["n"] += 1
+        live_app.refresh("counter")
+
+    # Async handler: refresh schedules straight onto the running loop.
+    @live_app.action("bump_async")
+    async def bump_async(values: dict[str, str]) -> None:
+        counter["n"] += 1
+        live_app.refresh("counter")
+
+    with TestClient(live_app) as probe, probe.websocket_connect("/ws/screens/counter") as socket:
+        first = socket.receive_json()
+        assert first["card"]["states"][0]["div"]["text"] == "Count: 0"
+
+        probe.post("/actions/bump", json={})
+        second = socket.receive_json()
+        assert second["card"]["states"][0]["div"]["text"] == "Count: 1"
+
+        probe.post("/actions/bump_async", json={})
+        third = socket.receive_json()
+        assert third["card"]["states"][0]["div"]["text"] == "Count: 2"
+
+
+def test_refresh_before_serving_is_a_noop() -> None:
+    live_app, _ = _counter_app()
+    live_app.refresh("counter")  # must not raise
+
+
+def test_a_screen_is_live_or_polled_never_both() -> None:
+    conflicted = lt.Latawiec()
+    try:
+        conflicted.screen("x", live=True, refresh=5)
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+    try:
+        conflicted.screen("y", refresh=0)
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_a_broken_render_does_not_starve_other_subscribers() -> None:
+    wobbly = lt.Latawiec()
+    explode = {"on": False}
+
+    @wobbly.screen("room/{id}", live=True)
+    def room(ctx: lt.Context) -> lt.Component:
+        if explode["on"] and ctx.params["id"] == "boom":
+            raise RuntimeError("broken per-user data")
+        return lt.Text(f"room {ctx.params['id']} {'hot' if explode['on'] else 'cold'}")
+
+    @wobbly.action("arm")
+    async def arm(values: dict[str, str]) -> None:
+        explode["on"] = True
+        wobbly.refresh("room/{id}")
+
+    with (
+        TestClient(wobbly) as probe,
+        # boom subscribes first, so its broken render runs first.
+        probe.websocket_connect("/ws/screens/room/boom") as broken,
+        probe.websocket_connect("/ws/screens/room/ok") as fine,
+    ):
+        broken.receive_json()
+        fine.receive_json()
+        probe.post("/actions/arm", json={})
+        pushed = fine.receive_json()["card"]["states"][0]["div"]["text"]
+        assert pushed == "room ok hot"
+
+
+def test_a_revoked_token_closes_the_live_subscription() -> None:
+    guarded = lt.Latawiec()
+    valid = {"sezam"}
+
+    @guarded.auth
+    def auth(token: str | None) -> str | None:
+        return "pat" if token in valid else None
+
+    @guarded.screen("inbox", live=True)
+    def inbox(ctx: lt.Context) -> lt.Component:
+        return lt.Text(f"Inbox of {ctx.user}")
+
+    @guarded.action("poke", public=True)
+    async def poke(values: dict[str, str]) -> None:
+        guarded.refresh("inbox")
+
+    with (
+        TestClient(guarded) as probe,
+        probe.websocket_connect(
+            "/ws/screens/inbox", headers={"Authorization": "Bearer sezam"}
+        ) as socket,
+    ):
+        socket.receive_json()
+        valid.clear()
+        probe.post("/actions/poke", json={})
+        message = socket.receive()
+        assert message["type"] == "websocket.close"
+        assert message["code"] == 4401
+
+
+def test_refresh_of_an_unknown_screen_raises() -> None:
+    try:
+        lt.Latawiec().refresh("nope")
+        raise AssertionError("expected KeyError")
+    except KeyError:
+        pass

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypedDict, cast
@@ -16,6 +17,8 @@ from latawiec.components import Component, Navigate, render
 # WebSocket close codes in the app-defined 4000-4999 range, echoing HTTP.
 NO_SUCH_SCREEN = 4404
 NOT_AUTHORIZED = 4401
+
+_log = logging.getLogger("latawiec")
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,16 @@ def _wants_context(handler: Callable[..., Any], without: int) -> bool:
     return len(inspect.signature(handler).parameters) > without
 
 
+@dataclass
+class _Subscriber:
+    """One phone holding a live screen open, with its request identity."""
+
+    socket: WebSocket
+    params: dict[str, str]
+    authorization: str | None
+    device: _Device
+
+
 class _Device(TypedDict):
     locale: str
     platform: str
@@ -151,6 +164,13 @@ class Latawiec(FastAPI):
         fetch screens over GET and cache them per policy."""
         self._auth: AuthHandler | None = None
         self._device_handler: tuple[DeviceHandler, bool] | None = None
+        self._live: set[str] = set()
+        self._refresh: dict[str, int] = {}
+        self._subscribers: dict[str, list[_Subscriber]] = {}
+        self._push_tasks: set[asyncio.Task[None]] = set()
+        self._pushing: set[str] = set()
+        self._dirty: set[str] = set()
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._screens: dict[str, tuple[ScreenBuilder, bool]] = {}
         self._actions: dict[str, tuple[ActionHandler, bool]] = {}
         self._public_screens: set[str] = set()
@@ -205,6 +225,8 @@ class Latawiec(FastAPI):
         *,
         public: bool = False,
         cache: CachePolicy | None = None,
+        live: bool = False,
+        refresh: int | None = None,
     ) -> Callable[[ScreenBuilder], ScreenBuilder]:
         """Register a screen; a {placeholder} as a whole path segment
         captures that segment as a param.
@@ -217,7 +239,17 @@ class Latawiec(FastAPI):
         app version changes, "swr" (the default) renders from cache and
         revalidates, "no-store" never touches disk — which is also the
         default for guarded screens once auth is registered.
+
+        `live=True` keeps the screen connected in production too: after the
+        first render the shell subscribes over the socket, and every
+        app.refresh(name) re-renders and pushes it — streaming is refreshing
+        fast. `refresh=N` is the cheap alternative: the shell refetches the
+        screen every N seconds while it is on display. One or the other.
         """
+        if live and refresh is not None:
+            raise ValueError("a screen is either live or polled, not both")
+        if refresh is not None and refresh <= 0:
+            raise ValueError("refresh is a positive number of seconds")
 
         def register(builder: ScreenBuilder) -> ScreenBuilder:
             self._screens[name] = (builder, _wants_context(builder, without=0))
@@ -225,9 +257,73 @@ class Latawiec(FastAPI):
                 self._public_screens.add(name)
             if cache is not None:
                 self._cache[name] = cache
+            if live:
+                self._live.add(name)
+            if refresh is not None:
+                self._refresh[name] = refresh
             return builder
 
         return register
+
+    def refresh(self, name: str) -> None:
+        """Re-render a live screen for every phone showing it, now.
+
+        Each subscriber gets its own render (its user, params, and device
+        context), with its access re-checked — a revoked token closes the
+        subscription. Callable from sync and async handlers alike; before
+        the server starts serving there is nobody to refresh, so it is a
+        no-op. Bursts coalesce: pushes of one screen run one at a time, and
+        refreshes landing mid-push fold into a single trailing re-render.
+        """
+        if name not in self._screens:
+            raise KeyError(f"no screen named {name!r}")
+        loop = self._loop
+        if loop is None:
+            return
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            task = loop.create_task(self._push(name))
+            # An unreferenced task may be collected mid-flight.
+            self._push_tasks.add(task)
+            task.add_done_callback(self._push_tasks.discard)
+        else:
+            asyncio.run_coroutine_threadsafe(self._push(name), loop)
+
+    async def _push(self, name: str) -> None:
+        if name in self._pushing:
+            self._dirty.add(name)
+            return
+        self._pushing.add(name)
+        try:
+            while True:
+                self._dirty.discard(name)
+                for subscriber in list(self._subscribers.get(name, ())):
+                    await self._push_one(name, subscriber)
+                if name not in self._dirty:
+                    return
+        finally:
+            self._pushing.discard(name)
+            self._dirty.discard(name)
+
+    async def _push_one(self, name: str, subscriber: _Subscriber) -> None:
+        # Re-checked per push: a token revoked mid-subscription must not
+        # keep receiving guarded renders.
+        allowed, user = await self._access(name, self._public_screens, subscriber.authorization)
+        try:
+            if not allowed:
+                await subscriber.socket.close(code=NOT_AUTHORIZED, reason="not authorized")
+                return
+            payload = await self._render(name, subscriber.params, user, subscriber.device)
+            await subscriber.socket.send_json(payload)
+        except (WebSocketDisconnect, RuntimeError):
+            # A socket that died mid-send; its handler unregisters it.
+            return
+        except Exception:
+            # One subscriber's broken render must not starve the rest.
+            _log.exception("pushing %r to a subscriber failed", name)
 
     def action(
         self, name: str, *, public: bool = False
@@ -354,17 +450,22 @@ class Latawiec(FastAPI):
         if resolved is None:
             raise HTTPException(status_code=404, detail=f"no screen named {name!r}")
         template = resolved[0]
+        headers = {
+            "Cache-Control": _CACHE_HEADERS[self._cache_policy(template)],
+            # Renders may depend on the device context, so a shared HTTP
+            # cache must key on these headers too.
+            "Vary": (
+                "Accept-Language, X-Latawiec-Platform, X-Latawiec-Timezone, X-Latawiec-App-Version"
+            ),
+        }
+        # After this render the shell subscribes (live) or refetches (poll).
+        if template in self._live:
+            headers["X-Latawiec-Live"] = "1"
+        elif template in self._refresh:
+            headers["X-Latawiec-Refresh"] = str(self._refresh[template])
         return JSONResponse(
             content=await self._render(template, resolved[1], user, _device(request.headers)),
-            headers={
-                "Cache-Control": _CACHE_HEADERS[self._cache_policy(template)],
-                # Renders may depend on the device context, so a shared HTTP
-                # cache must key on these headers too.
-                "Vary": (
-                    "Accept-Language, X-Latawiec-Platform, "
-                    "X-Latawiec-Timezone, X-Latawiec-App-Version"
-                ),
-            },
+            headers=headers,
         )
 
     async def _action_result(
@@ -426,6 +527,9 @@ class Latawiec(FastAPI):
         the fresh screen.
         """
         await websocket.accept()
+        # refresh() schedules onto this loop, also from threadpooled
+        # handlers; without a subscriber it has nothing to do anyway.
+        self._loop = asyncio.get_running_loop()
         resolved = self._resolve(name)
         template = resolved[0] if resolved else None
         allowed, user = await self._access(
@@ -437,11 +541,19 @@ class Latawiec(FastAPI):
         if resolved is None:
             await websocket.close(code=NO_SUCH_SCREEN, reason=f"no screen named {name!r}")
             return
-        await websocket.send_json(
-            await self._render(resolved[0], resolved[1], user, _device(websocket.headers))
+        device = _device(websocket.headers)
+        await websocket.send_json(await self._render(resolved[0], resolved[1], user, device))
+        # From here the socket doubles as the live subscription: every
+        # app.refresh(name) re-renders and pushes to it.
+        subscriber = _Subscriber(
+            websocket, resolved[1], websocket.headers.get("authorization"), device
         )
+        waiting = self._subscribers.setdefault(resolved[0], [])
+        waiting.append(subscriber)
         try:
             while True:
                 await websocket.receive_text()
         except WebSocketDisconnect:
             pass
+        finally:
+            waiting.remove(subscriber)

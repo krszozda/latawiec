@@ -56,6 +56,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
   and one tap can run several: `on_tap=(Haptic("success"), Submit(...))`
 - Push notifications: `@app.device` collects tokens (APNs / FCM), your push's
   `screen` key opens that screen on tap like a deep link
+- Live screens in production: `@app.screen("chat", live=True)` + `app.refresh("chat")`
+  pushes a fresh render to every phone showing it — call it fast and that is
+  streaming (`examples/chat.py`); `refresh=30` is the cheap polling variant
 
 What it lacks is mileage: no third-party apps in production yet.
 

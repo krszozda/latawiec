@@ -184,6 +184,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Gates the poll ticks: a backgrounded app must not keep fetching. */
+    private var resumed = false
+
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+        screens.lastOrNull()?.resumePolling()
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
+    }
+
     override fun onDestroy() {
         screens.forEach(ScreenView::stop)
         super.onDestroy()
@@ -220,6 +234,7 @@ class MainActivity : AppCompatActivity() {
         // Stopped before the slide: a teardown mid-animation would skip the
         // end action and leak the socket.
         leaving.stop()
+        screens.lastOrNull()?.resumePolling()
         leaving.animate()
             .translationX(stackHost.width.toFloat())
             .setDuration(PUSH_ANIMATION_MS)
@@ -241,6 +256,9 @@ class MainActivity : AppCompatActivity() {
         private val encodedName = name.split("/").joinToString("/", transform = Uri::encode)
         private var socket: WebSocket? = null
         private var reconnectDelayMs = RECONNECT_DELAY_MS
+
+        /** Poll interval of a refresh=N screen, from its response header. */
+        private var pollSeconds: Long? = null
 
         init {
             // Screens stack on top of each other; without an opaque
@@ -318,7 +336,20 @@ class MainActivity : AppCompatActivity() {
             val cached = screenCache.load(name)
             if (cached != null) {
                 render(cached.payload)
-                if (cached.policy == "static") return
+                when {
+                    cached.policy == "static" -> return
+                    // A cached live screen subscribes straight away — the
+                    // socket's backoff covers an unreachable server, and its
+                    // first message is the fresh render.
+                    cached.policy == "live" -> {
+                        post { if (!isDestroyed && isAttachedToWindow) connect() }
+                        return
+                    }
+                    // The interval from the cache keeps a polled screen's
+                    // rhythm even when the revalidation fetch fails.
+                    cached.policy.startsWith("poll:") ->
+                        pollSeconds = cached.policy.substringAfter(':').toLongOrNull()
+                }
             }
             val request =
                 authorized(Request.Builder().url("$serverUrl/screens/$encodedName")).build()
@@ -326,9 +357,10 @@ class MainActivity : AppCompatActivity() {
                 object : Callback {
                     override fun onFailure(call: Call, e: IOException) {
                         // With a cached copy on screen this is offline mode; a
-                        // blank screen keeps retrying on the socket's backoff.
+                        // blank screen keeps retrying on the socket's backoff,
+                        // and a polled screen keeps its rhythm.
                         Log.w(TAG, "screen $name fetch failed: $e")
-                        if (cached == null) later { fetch() }
+                        if (cached == null) later { fetch() } else schedulePoll()
                     }
 
                     override fun onResponse(call: Call, response: Response) {
@@ -339,22 +371,59 @@ class MainActivity : AppCompatActivity() {
                             }
                             if (!it.isSuccessful) {
                                 Log.w(TAG, "screen $name answered HTTP ${it.code}")
-                                if (cached == null) later { fetch() }
+                                if (cached == null) later { fetch() } else schedulePoll()
                                 return
                             }
                             val payload = it.body?.string() ?: return
                             val header = it.header("Cache-Control").orEmpty()
+                            val live = it.header("X-Latawiec-Live") != null
+                            val refreshSeconds =
+                                it.header("X-Latawiec-Refresh")?.toLongOrNull()
                             val policy = when {
                                 "no-store" in header -> "no-store"
                                 "immutable" in header -> "static"
+                                live -> "live"
+                                refreshSeconds != null -> "poll:$refreshSeconds"
                                 else -> "swr"
                             }
                             if (policy != "no-store") screenCache.store(name, policy, payload)
                             render(payload)
+                            if (live) {
+                                // A live screen subscribes after its first
+                                // render; every app.refresh() lands here.
+                                post { if (!isDestroyed && isAttachedToWindow) connect() }
+                            } else {
+                                pollSeconds = refreshSeconds
+                                schedulePoll()
+                            }
                         }
                     }
                 },
             )
+        }
+
+        /**
+         * Polled screens refetch on their interval, but only while truly on
+         * display: a covered or backgrounded screen stops ticking and
+         * resumePolling() picks it back up.
+         */
+        private fun schedulePoll() {
+            val seconds = pollSeconds ?: return
+            postDelayed(
+                {
+                    if (!isDestroyed && isAttachedToWindow &&
+                        resumed && screens.lastOrNull() == this
+                    ) {
+                        fetch()
+                    }
+                },
+                seconds * 1000,
+            )
+        }
+
+        /** Back on top (pop, or app foregrounded): refetch and tick again. */
+        fun resumePolling() {
+            if (pollSeconds != null && isAttachedToWindow) fetch()
         }
 
         /** Backs off while the server stays away; a delivered screen resets it. */
