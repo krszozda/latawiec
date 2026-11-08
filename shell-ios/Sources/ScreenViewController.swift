@@ -85,6 +85,8 @@ final class ScreenViewController: UIViewController {
     /// then revalidate over GET and swap in the fresh payload — unless the
     /// cached copy is "static", which lives until the manifest version moves.
     private func fetchScreen() {
+        // A response that outlives a sign-out wipe must not store.
+        let asOf = ScreenCache.shared.generation
         let cached = ScreenCache.shared.load(screen)
         if let cached {
             show(data: cached.payload)
@@ -141,7 +143,7 @@ final class ScreenViewController: UIViewController {
                 : live ? "live"
                 : refresh.map { "poll:\($0)" } ?? "swr"
             if policy != "no-store" {
-                ScreenCache.shared.store(self.screen, policy: policy, payload: data)
+                ScreenCache.shared.store(self.screen, policy: policy, payload: data, asOf: asOf)
             }
             self.show(data: data)
             if live {
@@ -241,6 +243,8 @@ final class ScreenViewController: UIViewController {
             if let action = values.removeValue(forKey: "action") {
                 submit(action: action, values: values)
             }
+        case "signout":
+            Auth.signOut(to: queryValues(of: url)["screen"])
         case "share":
             // Mid-animation double-taps would make the second present a
             // silent no-op anyway; skip it deliberately.

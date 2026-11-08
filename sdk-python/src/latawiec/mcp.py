@@ -29,6 +29,8 @@ Components:
 - Button(label, on_tap=..., color="#2962FF", text_color="#FFFFFF")
   # on_tap: Navigate(screen) | SetVariable(variable, value)
   #       | Submit(action, send=(variable, ...))
+  #       | SignOut(screen=None)  # drops the token AND the screen cache,
+  #         lands on `screen`, the manifest's login screen, or "home"
   #       | Share(text) | OpenUrl(url) | CopyToClipboard(text)
   #       | Haptic(feedback="light"|"medium"|"heavy"|"success"|"error")
   #       | a tuple of the above, run in order: (Haptic("success"), Submit(...))

@@ -26,11 +26,25 @@ class ScreenCache(context: Context) {
 
     fun loadManifest(): String? = prefs.getString("manifest", null)
 
+    /**
+     * Bumped by every wipe: a store captured before it must not land, or an
+     * in-flight response would re-poison the cache a sign-out cleared.
+     */
+    var generation = 0
+        private set
+
+    /** Drops every cached screen now (sign-out, identity change). */
+    fun clear() {
+        dir.deleteRecursively()
+        generation++
+    }
+
     /** Drops every cached screen when the served version changes. */
     fun adoptVersion(version: String?) {
         val known = prefs.getString("version", null)
         if (version == known) return
         dir.deleteRecursively()
+        generation++
         prefs.edit().putString("version", version).apply()
     }
 
@@ -52,7 +66,8 @@ class ScreenCache(context: Context) {
         }
     }
 
-    fun store(name: String, policy: String, payload: String) {
+    fun store(name: String, policy: String, payload: String, asOf: Int = generation) {
+        if (asOf != generation) return
         try {
             dir.mkdirs()
             val target = file(name)
