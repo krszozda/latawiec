@@ -99,6 +99,10 @@ def _wants_context(handler: Callable[..., Any], without: int) -> bool:
     return len(inspect.signature(handler).parameters) > without
 
 
+def _is_placeholder(segment: str) -> bool:
+    return segment.startswith("{") and segment.endswith("}")
+
+
 @dataclass
 class _Subscriber:
     """One phone holding a live screen open, with its request identity."""
@@ -233,7 +237,10 @@ class Latawiec(FastAPI):
 
         The builder may take no arguments, or one `Context` with `ctx.user`
         and `ctx.params` — e.g. @app.screen("product/{id}") receives
-        ctx.params["id"] when the shell navigates to "product/42".
+        ctx.params["id"] when the shell navigates to "product/42". Exact
+        names beat templates, a template with more literal segments beats a
+        more general one, and a tie ("{a}/edit" next to "product/{id}")
+        raises here rather than resolving by registration order.
 
         `cache` steers the shells' screen cache: "static" lives until the
         app version changes, "swr" (the default) renders from cache and
@@ -252,6 +259,13 @@ class Latawiec(FastAPI):
             raise ValueError("refresh is a positive number of seconds")
 
         def register(builder: ScreenBuilder) -> ScreenBuilder:
+            clash = self._ambiguous_with(name)
+            if clash is not None:
+                raise ValueError(
+                    f"screen {name!r} ties with {clash!r}: both can match the "
+                    "same path at the same specificity, so the winner would "
+                    "be registration order — rename a segment instead"
+                )
             self._screens[name] = (builder, _wants_context(builder, without=0))
             if public:
                 self._public_screens.add(name)
@@ -374,10 +388,16 @@ class Latawiec(FastAPI):
         return "swr"
 
     def _resolve(self, name: str) -> tuple[str, dict[str, str]] | None:
-        """Match a requested path to a registered name; exact names win."""
+        """Match a requested path to a registered name.
+
+        Exact names win; among matching templates the one with the fewest
+        placeholders (most literal segments) wins. The equal-specificity
+        case cannot arise: screen() rejects it at registration.
+        """
         if name in self._screens:
             return name, {}
         parts = name.split("/")
+        best: tuple[int, str, dict[str, str]] | None = None
         for template in self._screens:
             if "{" not in template:
                 continue
@@ -386,12 +406,45 @@ class Latawiec(FastAPI):
                 continue
             params: dict[str, str] = {}
             for segment, part in zip(segments, parts, strict=True):
-                if segment.startswith("{") and segment.endswith("}"):
+                if _is_placeholder(segment):
                     params[segment[1:-1]] = part
                 elif segment != part:
                     break
             else:
-                return template, params
+                holes = sum(map(_is_placeholder, segments))
+                if best is None or holes < best[0]:
+                    best = (holes, template, params)
+        if best is None:
+            return None
+        return best[1], best[2]
+
+    def _ambiguous_with(self, name: str) -> str | None:
+        """An already-registered template this one ties with.
+
+        Two templates tie when they can match the same path with the same
+        number of placeholders — "{a}/edit" and "product/{id}" both claim
+        "product/edit" and neither is more specific, so the choice would be
+        registration order: silent and surprising. Caught here instead.
+        """
+        if "{" not in name:
+            return None
+        segments = name.split("/")
+        holes = sum(map(_is_placeholder, segments))
+        for other in self._screens:
+            # Re-registering a name overwrites it, as it always did.
+            if other == name or "{" not in other:
+                continue
+            others = other.split("/")
+            if len(others) != len(segments):
+                continue
+            if sum(map(_is_placeholder, others)) != holes:
+                continue
+            overlapping = all(
+                a == b or _is_placeholder(a) or _is_placeholder(b)
+                for a, b in zip(segments, others, strict=True)
+            )
+            if overlapping:
+                return other
         return None
 
     async def _render(
