@@ -6,8 +6,10 @@
 
     <application
         android:name=".LatawiecApp"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
+        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
+        android:usesCleartextTraffic="${cleartext}">
         <!-- singleTask: a deep link to a running app reuses the activity via
              onNewIntent instead of stacking a second shell. -->
         <activity

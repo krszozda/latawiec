@@ -27,6 +27,10 @@ android {
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         manifestPlaceholders["deepLinkScheme"] =
             providers.gradleProperty("deepLinkScheme").getOrElse("latawiec")
+        // The generic try-it-out APK passes -Pcleartext so a typed LAN http
+        // URL works; store builds keep the platform default (https only).
+        manifestPlaceholders["cleartext"] =
+            if (providers.gradleProperty("cleartext").isPresent) "true" else "false"
         // Push rides on Firebase and is branded like everything else: pass
         // the three values from your Firebase project's Android app (see
         // docs/shipping.md). Without them the shell runs push-free.
@@ -67,7 +71,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            if (storeFile != null) signingConfig = signingConfigs.getByName("release")
+            if (storeFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            } else if (providers.gradleProperty("debugSign").isPresent) {
+                // The generic try-it-out APK: a real release build (so the
+                // debug-only serverUrl extra stays dead) that still installs
+                // anywhere without a keystore.
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 

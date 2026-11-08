@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.LocaleList
+import android.text.InputType
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -23,10 +24,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
@@ -74,9 +77,15 @@ class MainActivity : AppCompatActivity() {
 
     // Instrumentation tests point the shell at a per-test server. Debug-only:
     // the activity is exported, so in a release build any app could repoint
-    // the shell at its own server with this extra.
+    // the shell at its own server with this extra. A build with no baked-in
+    // URL (the generic try-it-out APK) falls back to the address the user
+    // typed on first start.
     private val serverUrl by lazy {
-        intent.getStringExtra("serverUrl").takeIf { BuildConfig.DEBUG } ?: BuildConfig.SERVER_URL
+        intent.getStringExtra("serverUrl").takeIf { BuildConfig.DEBUG }
+            ?: BuildConfig.SERVER_URL.ifEmpty {
+                getSharedPreferences("latawiec-config", MODE_PRIVATE)
+                    .getString("serverUrl", "").orEmpty()
+            }
     }
     private lateinit var div2Context: Div2Context
     private lateinit var stackHost: FrameLayout
@@ -133,9 +142,57 @@ class MainActivity : AppCompatActivity() {
             },
         )
 
-        // On recreation the task's root intent replays; the link opened once.
-        if (savedInstanceState == null) pendingDeepLink = linkedScreen(intent)
+        // On recreation the task's root intent replays; the link opened once
+        // (and survives the recreate() a first-start setup triggers).
+        pendingDeepLink = if (savedInstanceState == null) {
+            linkedScreen(intent)
+        } else {
+            savedInstanceState.getString("pendingDeepLink")
+        }
+        if (serverUrl.isEmpty()) {
+            askForServer()
+            return
+        }
         fetchManifest()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("pendingDeepLink", pendingDeepLink)
+    }
+
+    /** The generic APK ships without a server; the first start asks for one. */
+    private fun askForServer() {
+        val input = EditText(this).apply {
+            hint = "https://your-server.example.com"
+            inputType = InputType.TYPE_TEXT_VARIATION_URI
+            // A typo'd address comes back for editing, not retyping.
+            setText(
+                getSharedPreferences("latawiec-config", MODE_PRIVATE)
+                    .getString("serverUrl", ""),
+            )
+        }
+        val frame = FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Where does this app live?")
+            .setMessage("Enter your Latawiec server's URL.")
+            .setView(frame)
+            .setCancelable(false)
+            .setPositiveButton("Connect") { _, _ ->
+                val url = input.text.toString().trim().trimEnd('/')
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    getSharedPreferences("latawiec-config", MODE_PRIVATE)
+                        .edit().putString("serverUrl", url).apply()
+                }
+                // Rebuilds the activity so the lazy serverUrl re-resolves;
+                // a rejected value simply asks again.
+                recreate()
+            }
+            .show()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -550,7 +607,16 @@ class MainActivity : AppCompatActivity() {
                             null
                         }
                     }
-                    stackHost.post { if (!isDestroyed) boot(remembered) }
+                    stackHost.post {
+                        if (isDestroyed) return@post
+                        // A typed address that never answered once is most
+                        // likely a typo; ask again instead of spinning.
+                        if (remembered == null && BuildConfig.SERVER_URL.isEmpty()) {
+                            askForServer()
+                        } else {
+                            boot(remembered)
+                        }
+                    }
                 }
 
                 override fun onResponse(call: Call, response: Response) {

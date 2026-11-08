@@ -5,6 +5,15 @@ point it at your production server, and it is your store app. Screens keep
 living in Python — a store release is only needed when the shell itself
 changes.
 
+## Try it first, no Android toolchain
+
+Every release on GitHub carries `latawiec-shell.apk`: a generic,
+debug-signed shell with no server baked in. Install it on a phone or
+emulator, start it, and it asks for your server's URL — pointed at
+`uvicorn examples.hello:app --host 0.0.0.0`, your Python renders on the
+phone five minutes after `pip install latawiec`. It is for trying things
+out, not for stores: brand your own build below when it is time.
+
 Before anything else, deploy your server with production settings:
 
 ```python
@@ -41,14 +50,9 @@ The `ship-android` workflow does the same from the GitHub UI: add the
 keystore (base64), its password, the alias, and the key password as the
 `ANDROID_*` secrets, then run the workflow with your branding as inputs.
 
-The template ships no launcher icon. Add yours as
+The template ships a kite launcher icon; swap in your brand by replacing
 `app/src/main/res/mipmap-*/ic_launcher.png` (Android Studio's Image Asset
-tool generates the densities) and declare it on the `<application>` element
-in `app/src/main/AndroidManifest.xml`:
-
-```xml
-android:icon="@mipmap/ic_launcher"
-```
+tool generates the densities).
 
 ## iOS (App Store Connect)
 
@@ -74,11 +78,14 @@ with the usual `ExportOptions.plist` (`method: app-store-connect`), then
 upload the `.ipa` with Transporter or `xcrun altool`. Signing uses your
 Apple Developer account's automatic signing.
 
-The template ships no app icon. Create `Assets.xcassets` with an `AppIcon`
-set, list it in `project.yml` next to the sources
-(`sources: [Sources, Assets.xcassets]`) and add
-`ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` to the target's settings,
-then regenerate with `xcodegen generate`.
+The template ships a kite app icon; swap in your brand by replacing
+`Assets.xcassets/AppIcon.appiconset/icon.png` (a single 1024×1024 PNG).
+
+The `ship-ios` workflow does all of the above from the GitHub UI: add the
+distribution certificate (base64 `.p12` + its password), an App Store
+provisioning profile (base64), and your team id as the `IOS_*` /
+`APPLE_TEAM_ID` secrets, then run the workflow with your branding as
+inputs and download the `.ipa` artifact for Transporter.
 
 ## Deep links
 

@@ -17,3 +17,35 @@ jobs:
       - run: uv publish
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+
+  # The try-it-out shell: no baked-in server, asks for the URL on first
+  # start, allows the plain-http LAN address people will type. A real
+  # release build (the debug-only extras stay dead), signed with the debug
+  # key so it installs anywhere — for pointing at your server, not stores.
+  shell-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: ./gradlew :app:assembleRelease -PserverUrl= -PdebugSign -Pcleartext
+        working-directory: shell-android
+      # The GitHub release is created by hand moments after the tag lands,
+      # so the upload waits for it instead of racing it.
+      - run: |
+          cp shell-android/app/build/outputs/apk/release/app-release.apk \
+            latawiec-shell.apk
+          for attempt in $(seq 1 20); do
+            if gh release upload "$GITHUB_REF_NAME" latawiec-shell.apk --clobber; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "no release appeared for $GITHUB_REF_NAME" >&2
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -10,7 +10,7 @@ targets:
   LatawiecShell:
     type: application
     platform: iOS
-    sources: [Sources]
+    sources: [Sources, Assets.xcassets]
     dependencies:
       - package: DivKit
         product: DivKit
@@ -19,17 +19,26 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.krszozda.latawiec.shell
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # A store build overrides this on the xcodebuild command line and the
         # Info.plist below bakes it in; empty means the dev fallback chain.
         LATAWIEC_SERVER_URL: ""
         # The custom deep-link scheme ("latawiec://product/42"); a store build
         # overrides it the same way.
         LATAWIEC_URL_SCHEME: latawiec
+        # Store builds override these on the xcodebuild command line; the
+        # Info.plist below reads them, so the overrides actually land.
+        LATAWIEC_APP_NAME: Latawiec
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
     info:
       path: Info.plist
       properties:
         UILaunchScreen: {}
         LatawiecServerURL: $(LATAWIEC_SERVER_URL)
+        CFBundleDisplayName: $(LATAWIEC_APP_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - $(LATAWIEC_URL_SCHEME)

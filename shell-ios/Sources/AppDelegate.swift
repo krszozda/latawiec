@@ -8,8 +8,9 @@ enum Server {
     /// Dev order: the LATAWIEC_SERVER_URL environment variable (simulator,
     /// UI tests), then the URL a store build bakes into Info.plist via the
     /// LATAWIEC_SERVER_URL build setting (see docs/shipping.md), then the
-    /// Mac's loopback.
-    static let url: String = {
+    /// address the user typed on first start, then — on the simulator only —
+    /// the Mac's loopback. Empty means the shell must ask.
+    static var url: String = {
         if let env = ProcessInfo.processInfo.environment["LATAWIEC_SERVER_URL"] {
             return env
         }
@@ -17,7 +18,15 @@ enum Server {
            !baked.isEmpty {
             return baked
         }
-        return "http://127.0.0.1:8000"
+        if let typed = UserDefaults.standard.string(forKey: "latawiec.serverUrl"),
+           !typed.isEmpty {
+            return typed
+        }
+        #if targetEnvironment(simulator)
+            return "http://127.0.0.1:8000"
+        #else
+            return ""
+        #endif
     }()
 
     /// Dev keeps the live-reload socket; production fetches and caches.
@@ -70,8 +79,52 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         self.window = window
         // Before anything is delivered, or a cold-start tap would be lost.
         UNUserNotificationCenter.current().delegate = self
-        loadManifest()
+        if Server.url.isEmpty {
+            askForServer()
+        } else {
+            loadManifest()
+        }
         return true
+    }
+
+    /// The generic build ships without a server; the first start asks.
+    private func askForServer() {
+        let alert = UIAlertController(
+            title: "Where does this app live?",
+            message: "Enter your Latawiec server's URL.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = "https://your-server.example.com"
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            // A typo'd address comes back for editing, not retyping.
+            field.text = UserDefaults.standard.string(forKey: "latawiec.serverUrl")
+        }
+        alert.addAction(
+            UIAlertAction(title: "Connect", style: .default) { [weak self] _ in
+                var url = (alert.textFields?.first?.text ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                while url.hasSuffix("/") { url = String(url.dropLast()) }
+                guard url.hasPrefix("http://") || url.hasPrefix("https://") else {
+                    self?.askForServer()
+                    return
+                }
+                UserDefaults.standard.set(url, forKey: "latawiec.serverUrl")
+                Server.url = url
+                self?.loadManifest()
+            }
+        )
+        window?.rootViewController?.present(alert, animated: true)
+    }
+
+    /// True when the running URL came from the first-start prompt.
+    private var serverWasTyped: Bool {
+        ProcessInfo.processInfo.environment["LATAWIEC_SERVER_URL"] == nil
+            && ((Bundle.main.object(forInfoDictionaryKey: "LatawiecServerURL") as? String) ?? "")
+                .isEmpty
+            && !(UserDefaults.standard.string(forKey: "latawiec.serverUrl") ?? "").isEmpty
     }
 
     func application(
@@ -221,6 +274,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                     self.window?.rootViewController = Self.tabBarController(for: manifest)
                 } else {
                     if manifest == nil {
+                        // A typed address that never answered once is most
+                        // likely a typo; ask again instead of spinning.
+                        if raw == nil, self.serverWasTyped {
+                            self.askForServer()
+                            return
+                        }
                         log.warning("manifest unavailable; falling back to home")
                     }
                     self.window?.rootViewController = Self.fallbackRoot()
