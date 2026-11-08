@@ -59,6 +59,9 @@ class AuthTest {
         assertTrue(device.wait(Until.hasObject(By.focused(true)), TIMEOUT_MS))
         device.findObject(By.focused(true)).text = "sezam"
         device.pressBack() // dismiss the keyboard so the button is tappable
+        // The dismissal refreshes the accessibility tree; an unwaited find
+        // can come back null mid-refresh.
+        assertTrue(device.wait(Until.hasObject(By.text(screenText("Enter"))), TIMEOUT_MS))
         device.findObject(By.text(screenText("Enter"))).click()
 
         awaitScreenText("Signed in")

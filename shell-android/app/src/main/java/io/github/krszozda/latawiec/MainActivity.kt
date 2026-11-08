@@ -10,6 +10,7 @@ import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
 import android.os.Bundle
+import android.os.LocaleList
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -38,6 +39,7 @@ import com.yandex.div.json.expressions.ExpressionResolver
 import com.yandex.div2.DivAction
 import com.yandex.div2.DivData
 import java.io.IOException
+import java.util.TimeZone
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -369,8 +371,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Every screen and action request carries the token and device context. */
     private fun authorized(builder: Request.Builder): Request.Builder {
         token?.let { builder.header("Authorization", "Bearer $it") }
+        builder.header("Accept-Language", LocaleList.getDefault().toLanguageTags())
+        builder.header("X-Latawiec-Platform", "android")
+        builder.header("X-Latawiec-Timezone", TimeZone.getDefault().id)
+        builder.header("X-Latawiec-App-Version", BuildConfig.VERSION_NAME)
         return builder
     }
 
@@ -448,7 +455,12 @@ class MainActivity : AppCompatActivity() {
         loginScreen = manifest?.opt("login") as? String
         if (manifest != null) {
             devMode = manifest.optBoolean("dev", true)
-            screenCache.adoptVersion(manifest.opt("version") as? String)
+            // Cached screens may be rendered per locale, so a language
+            // change drops them exactly like a version bump.
+            val version = manifest.opt("version") as? String
+            screenCache.adoptVersion(
+                "${version.orEmpty()}|${LocaleList.getDefault().toLanguageTags()}",
+            )
             screenCache.storeManifest(manifest.toString())
         }
         val tabs = manifest?.optJSONArray("tabs")

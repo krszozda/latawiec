@@ -381,3 +381,65 @@ def test_public_socket_needs_no_token() -> None:
     with guarded.websocket_connect("/ws/screens/signin") as socket:
         payload = socket.receive_json()
     assert payload["card"]["states"][0]["div"]["items"][0]["type"] == "input"
+
+
+DEVICE_HEADERS = {
+    "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
+    "X-Latawiec-Platform": "Android",
+    "X-Latawiec-Timezone": "Europe/Warsaw",
+    "X-Latawiec-App-Version": "1.2",
+}
+
+
+def _device_app() -> lt.Latawiec:
+    probed = lt.Latawiec()
+
+    @probed.screen("probe")
+    def probe(ctx: lt.Context) -> lt.Component:
+        return lt.Text(f"{ctx.locale}|{ctx.platform}|{ctx.timezone}|{ctx.app_version}")
+
+    return probed
+
+
+def test_screen_context_carries_the_device_headers() -> None:
+    response = TestClient(_device_app()).get("/screens/probe", headers=DEVICE_HEADERS)
+
+    div = response.json()["card"]["states"][0]["div"]
+    assert div["text"] == "pl-PL|android|Europe/Warsaw|1.2"
+    # Shared HTTP caches must key cacheable renders on the device headers.
+    assert "Accept-Language" in response.headers["vary"]
+    assert "X-Latawiec-Platform" in response.headers["vary"]
+
+
+def test_device_context_is_empty_for_a_plain_client() -> None:
+    response = TestClient(_device_app()).get("/screens/probe")
+
+    div = response.json()["card"]["states"][0]["div"]
+    assert div["text"] == "|||"
+
+
+def test_a_wildcard_accept_language_is_not_a_locale() -> None:
+    response = TestClient(_device_app()).get("/screens/probe", headers={"Accept-Language": "*"})
+
+    div = response.json()["card"]["states"][0]["div"]
+    assert div["text"] == "|||"
+
+
+def test_socket_context_carries_the_device_headers() -> None:
+    with TestClient(_device_app()).websocket_connect(
+        "/ws/screens/probe", headers=DEVICE_HEADERS
+    ) as socket:
+        payload = socket.receive_json()
+
+    assert payload["card"]["states"][0]["div"]["text"] == "pl-PL|android|Europe/Warsaw|1.2"
+
+
+def test_action_context_carries_the_device_headers() -> None:
+    probed = _device_app()
+
+    @probed.action("whereami")
+    def whereami(values: dict[str, str], ctx: lt.Context) -> lt.Navigate:
+        return lt.Navigate(f"welcome/{ctx.locale}/{ctx.platform}")
+
+    response = TestClient(probed).post("/actions/whereami", json={}, headers=DEVICE_HEADERS)
+    assert response.json() == {"navigate": "welcome/pl-PL/android"}

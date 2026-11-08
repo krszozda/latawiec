@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable, Coroutine, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, TypedDict, cast
 
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -57,6 +57,18 @@ class Context:
     params: dict[str, str] = field(default_factory=dict[str, str])
     """Values captured by {placeholders} in the screen's registered name."""
 
+    locale: str = ""
+    """First Accept-Language tag the device sent, e.g. "pl-PL"; "" unknown."""
+
+    platform: str = ""
+    """"android" or "ios" from the shells; "" for any other client."""
+
+    timezone: str = ""
+    """The device's IANA zone id, e.g. "Europe/Warsaw"; "" unknown."""
+
+    app_version: str = ""
+    """The installed shell build's version name; "" unknown."""
+
 
 # Builders, handlers, and the auth check may be sync or `async def`; sync
 # ones run in a threadpool so a blocking call cannot stall the event loop.
@@ -81,6 +93,26 @@ def _bearer(authorization: str | None) -> str | None:
 
 def _wants_context(handler: Callable[..., Any], without: int) -> bool:
     return len(inspect.signature(handler).parameters) > without
+
+
+class _Device(TypedDict):
+    locale: str
+    platform: str
+    timezone: str
+    app_version: str
+
+
+def _device(headers: Mapping[str, str]) -> _Device:
+    """Context fields the shells report in headers on every request."""
+    accept = headers.get("accept-language", "")
+    first = accept.split(",")[0].split(";")[0].strip()
+    return {
+        # A browser's "anything goes" wildcard is not a locale.
+        "locale": "" if first == "*" else first,
+        "platform": headers.get("x-latawiec-platform", "").lower(),
+        "timezone": headers.get("x-latawiec-timezone", ""),
+        "app_version": headers.get("x-latawiec-app-version", ""),
+    }
 
 
 CachePolicy = Literal["static", "swr", "no-store"]
@@ -197,7 +229,8 @@ class Latawiec(FastAPI):
         return tuple(self._screens)
 
     def render_screen(self, name: str) -> dict[str, Any]:
-        """Render a screen by path (no user) to the payload a shell renders.
+        """Render a screen by path (no user, no device context) to the
+        payload a shell renders.
 
         Synchronous for callers like the MCP tools; an `async def` builder
         is driven with asyncio.run, so call it outside an event loop.
@@ -243,9 +276,11 @@ class Latawiec(FastAPI):
                 return template, params
         return None
 
-    async def _render(self, template: str, params: dict[str, str], user: Any) -> dict[str, Any]:
+    async def _render(
+        self, template: str, params: dict[str, str], user: Any, device: _Device
+    ) -> dict[str, Any]:
         builder, wants_context = self._screens[template]
-        args = (Context(user=user, params=params),) if wants_context else ()
+        args = (Context(user=user, params=params, **device),) if wants_context else ()
         return render(await _call(builder, *args))
 
     async def _access(
@@ -281,6 +316,7 @@ class Latawiec(FastAPI):
     async def _screen_payload(
         self,
         name: str,
+        request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> JSONResponse:
         resolved = self._resolve(name)
@@ -296,14 +332,23 @@ class Latawiec(FastAPI):
             raise HTTPException(status_code=404, detail=f"no screen named {name!r}")
         template = resolved[0]
         return JSONResponse(
-            content=await self._render(template, resolved[1], user),
-            headers={"Cache-Control": _CACHE_HEADERS[self._cache_policy(template)]},
+            content=await self._render(template, resolved[1], user, _device(request.headers)),
+            headers={
+                "Cache-Control": _CACHE_HEADERS[self._cache_policy(template)],
+                # Renders may depend on the device context, so a shared HTTP
+                # cache must key on these headers too.
+                "Vary": (
+                    "Accept-Language, X-Latawiec-Platform, "
+                    "X-Latawiec-Timezone, X-Latawiec-App-Version"
+                ),
+            },
         )
 
     async def _action_result(
         self,
         name: str,
         values: dict[str, str],
+        request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, str | None]:
         registered = self._actions.get(name)
@@ -319,7 +364,9 @@ class Latawiec(FastAPI):
         if registered is None:
             raise HTTPException(status_code=404, detail=f"no action named {name!r}")
         handler, wants_context = registered
-        args = (values, Context(user=user)) if wants_context else (values,)
+        args = (
+            (values, Context(user=user, **_device(request.headers))) if wants_context else (values,)
+        )
         result = await _call(handler, *args)
         if isinstance(result, Grant):
             return {"navigate": result.screen, "token": result.token}
@@ -344,7 +391,9 @@ class Latawiec(FastAPI):
         if resolved is None:
             await websocket.close(code=NO_SUCH_SCREEN, reason=f"no screen named {name!r}")
             return
-        await websocket.send_json(await self._render(resolved[0], resolved[1], user))
+        await websocket.send_json(
+            await self._render(resolved[0], resolved[1], user, _device(websocket.headers))
+        )
         try:
             while True:
                 await websocket.receive_text()

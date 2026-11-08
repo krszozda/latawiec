@@ -57,10 +57,19 @@ enum Auth {
         TokenStore.save(token)
     }
 
+    /// Every screen and action request carries the token and device context.
     static func authorize(_ request: inout URLRequest) {
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        request.setValue(
+            Locale.preferredLanguages.joined(separator: ","),
+            forHTTPHeaderField: "Accept-Language"
+        )
+        request.setValue("ios", forHTTPHeaderField: "X-Latawiec-Platform")
+        request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Latawiec-Timezone")
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+        request.setValue(version as? String ?? "", forHTTPHeaderField: "X-Latawiec-App-Version")
     }
 
     /// A rejected token is gone for good; the login screen starts over.
