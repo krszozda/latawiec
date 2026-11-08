@@ -222,6 +222,7 @@ class Latawiec(FastAPI):
         self._upload_handler: tuple[UploadHandler, bool] | None = None
         self._live: set[str] = set()
         self._refresh: dict[str, int] = {}
+        self._refreshable: set[str] = set()
         self._subscribers: dict[str, list[_Subscriber]] = {}
         self._push_tasks: set[asyncio.Task[None]] = set()
         self._pushing: set[str] = set()
@@ -300,6 +301,7 @@ class Latawiec(FastAPI):
         cache: CachePolicy | None = None,
         live: bool = False,
         refresh: int | None = None,
+        refreshable: bool = False,
     ) -> Callable[[ScreenBuilder], ScreenBuilder]:
         """Register a screen; a {placeholder} as a whole path segment
         captures that segment as a param.
@@ -321,6 +323,9 @@ class Latawiec(FastAPI):
         app.refresh(name) re-renders and pushes it — streaming is refreshing
         fast. `refresh=N` is the cheap alternative: the shell refetches the
         screen every N seconds while it is on display. One or the other.
+
+        `refreshable=True` gives the screen the pull-to-refresh gesture in
+        production (on iOS the screen's root must scroll, e.g. a Gallery).
         """
         if live and refresh is not None:
             raise ValueError("a screen is either live or polled, not both")
@@ -344,6 +349,8 @@ class Latawiec(FastAPI):
                 self._live.add(name)
             if refresh is not None:
                 self._refresh[name] = refresh
+            if refreshable:
+                self._refreshable.add(name)
             return builder
 
         return register
@@ -606,6 +613,8 @@ class Latawiec(FastAPI):
             headers["X-Latawiec-Live"] = "1"
         elif template in self._refresh:
             headers["X-Latawiec-Refresh"] = str(self._refresh[template])
+        if template in self._refreshable:
+            headers["X-Latawiec-Refreshable"] = "1"
         # A changed fingerprint tells the shell to refetch the manifest.
         headers["X-Latawiec-Manifest"] = self._manifest_hash()
         return JSONResponse(

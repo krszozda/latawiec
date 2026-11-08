@@ -34,6 +34,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.messaging.FirebaseMessaging
@@ -49,6 +50,7 @@ import com.yandex.div.json.ParsingErrorLogger
 import com.yandex.div.json.expressions.ExpressionResolver
 import com.yandex.div2.DivAction
 import com.yandex.div2.DivData
+import com.yandex.div2.DivSightAction
 import java.io.IOException
 import java.util.TimeZone
 import okhttp3.Call
@@ -360,14 +362,33 @@ class MainActivity : AppCompatActivity() {
         /** Poll interval of a refresh=N screen, from its response header. */
         private var pollSeconds: Long? = null
 
+        private val swipe = SwipeRefreshLayout(context).apply {
+            isEnabled = false
+            addView(divView)
+            // The gesture must not steal scrolls from a list that can still
+            // go up — DivKit's lists live somewhere inside the view tree.
+            setOnChildScrollUpCallback { _, _ -> canAnyScrollUp(divView) }
+            setOnRefreshListener { if (devMode) connect() else fetch() }
+        }
+
         init {
             // Screens stack on top of each other; without an opaque
             // background the covered screen bleeds through.
             val background = TypedValue()
             context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
             setBackgroundColor(background.data)
-            addView(divView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(swipe, LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(spinner, LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER))
+        }
+
+        private fun canAnyScrollUp(view: View): Boolean {
+            if (view.canScrollVertically(-1)) return true
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) {
+                    if (canAnyScrollUp(view.getChildAt(i))) return true
+                }
+            }
+            return false
         }
 
         fun start() {
@@ -467,7 +488,9 @@ class MainActivity : AppCompatActivity() {
         private fun fetch() {
             // A response that outlives a sign-out wipe must not store.
             val asOf = screenCache.generation
-            val cached = screenCache.load(name)
+            // Mid-pull the content is already on screen: rendering the
+            // cached copy would snap the indicator shut within a frame.
+            val cached = if (swipe.isRefreshing) null else screenCache.load(name)
             if (cached != null) {
                 render(cached.payload)
                 when {
@@ -494,6 +517,7 @@ class MainActivity : AppCompatActivity() {
                         // blank screen keeps retrying on the socket's backoff,
                         // and a polled screen keeps its rhythm.
                         Log.w(TAG, "screen $name fetch failed: $e")
+                        post { swipe.isRefreshing = false }
                         if (cached == null) later { fetch() } else schedulePoll()
                     }
 
@@ -505,6 +529,7 @@ class MainActivity : AppCompatActivity() {
                             }
                             if (!it.isSuccessful) {
                                 Log.w(TAG, "screen $name answered HTTP ${it.code}")
+                                post { swipe.isRefreshing = false }
                                 if (cached == null) later { fetch() } else schedulePoll()
                                 return
                             }
@@ -522,6 +547,9 @@ class MainActivity : AppCompatActivity() {
                             }
                             if (policy != "no-store") {
                                 screenCache.store(name, policy, payload, asOf)
+                            }
+                            if (it.header("X-Latawiec-Refreshable") != null) {
+                                post { swipe.isEnabled = true }
                             }
                             render(payload)
                             it.header("X-Latawiec-Manifest")?.let { seen ->
@@ -591,6 +619,7 @@ class MainActivity : AppCompatActivity() {
                 if (!isDestroyed) {
                     divView.setData(data, DivDataTag(name))
                     spinner.visibility = View.GONE
+                    swipe.isRefreshing = false
                 }
             }
         }
@@ -998,7 +1027,24 @@ class MainActivity : AppCompatActivity() {
             resolver: ExpressionResolver,
         ): Boolean {
             val url = action.url?.evaluate(resolver)
-            if (url != null && url.scheme == "latawiec") {
+            if (url != null && handleLatawiec(url)) return true
+            return super.handleAction(action, view, resolver)
+        }
+
+        /** LoadMore fires a visibility action; DivKit's dispatcher routes
+         * those through this DivSightAction overload. */
+        override fun handleAction(
+            action: DivSightAction,
+            view: DivViewFacade,
+            resolver: ExpressionResolver,
+        ): Boolean {
+            val url = action.url?.evaluate(resolver)
+            if (url != null && handleLatawiec(url)) return true
+            return super.handleAction(action, view, resolver)
+        }
+
+        private fun handleLatawiec(url: Uri): Boolean {
+            if (url.scheme == "latawiec") {
                 when (url.host) {
                     "navigate" -> {
                         val screen = url.getQueryParameter("screen") ?: return false
@@ -1054,7 +1100,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            return super.handleAction(action, view, resolver)
+            return false
         }
     }
 }

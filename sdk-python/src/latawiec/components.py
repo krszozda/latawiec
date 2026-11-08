@@ -337,6 +337,44 @@ Action = Navigate | SetVariable | Submit | Share | OpenUrl | CopyToClipboard | H
 
 
 @dataclass(frozen=True)
+class LoadMore(Component):
+    """The infinite-scroll sentinel: put it last in a Gallery.
+
+    When it scrolls into view it submits `action` (no variables); the
+    handler extends what the screen renders and calls app.refresh(), so
+    pair it with live=True. Render it only while there is more — a
+    sentinel left in an exhausted list re-fires on every refresh — and
+    make the handler tolerate a duplicate fire (scrolling the sentinel
+    out and back in before the refresh lands sends the action again).
+    """
+
+    action: str
+    label: str = "Loading more…"
+    style: Style | None = None
+
+    def _build(self) -> dv.Div:
+        return dv.DivText(
+            text=self.label,
+            text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
+            paddings=dv.DivEdgeInsets(top=16, bottom=16),
+            visibility_actions=[
+                dv.DivVisibilityAction(
+                    log_id=f"more:{self.action}",
+                    url=f"latawiec://submit?action={quote(self.action, safe='')}",
+                    # Unlimited: Android keys fire-counters by (card, log_id)
+                    # and never resets them across refreshes, so the default
+                    # limit of 1 would end the scroll after a single page.
+                    log_limit=0,
+                    # Fire fast: the default wants 800 ms of continuous
+                    # visibility, which a fling never grants the sentinel.
+                    visibility_duration=100,
+                    visibility_percentage=1,
+                )
+            ],
+        )
+
+
+@dataclass(frozen=True)
 class ImagePicker(Component):
     """A photo from the gallery, uploaded the moment it is picked.
 
