@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.LocaleList
+import android.provider.OpenableColumns
 import android.text.InputType
 import android.util.Log
 import android.util.TypedValue
@@ -29,6 +30,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomnavigation.BottomNavigationView
@@ -51,12 +54,16 @@ import java.util.TimeZone
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.BufferedSink
+import okio.source
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -112,6 +119,18 @@ class MainActivity : AppCompatActivity() {
     private var askedForNotifications = false
     private var pushEnabled = false
 
+    /** Which screen variable (and whose screen) the in-flight pick feeds. */
+    private var pendingPickVariable: String? = null
+    private var pendingPickScreen: ScreenView? = null
+    private val pickMedia =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            val variable = pendingPickVariable
+            val screen = pendingPickScreen
+            pendingPickVariable = null
+            pendingPickScreen = null
+            if (uri != null && variable != null) uploadPicked(uri, variable, screen)
+        }
+
     /**
      * One view per screen, stacked like iOS's navigation controllers: popping
      * uncovers the previous view with its DivKit variables intact, instead of
@@ -154,6 +173,9 @@ class MainActivity : AppCompatActivity() {
         } else {
             savedInstanceState.getString("pendingDeepLink")
         }
+        if (savedInstanceState != null) {
+            pendingPickVariable = savedInstanceState.getString("pendingPickVariable")
+        }
         if (serverUrl.isEmpty()) {
             askForServer()
             return
@@ -164,6 +186,9 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString("pendingDeepLink", pendingDeepLink)
+        // A pick's ActivityResult survives process death; its variable must
+        // too, or the redelivered photo is silently dropped.
+        outState.putString("pendingPickVariable", pendingPickVariable)
     }
 
     /** The generic APK ships without a server; the first start asks for one. */
@@ -356,6 +381,13 @@ class MainActivity : AppCompatActivity() {
         /** Releases DivKit resources (players included); after removal. */
         fun cleanup() {
             divView.cleanup()
+        }
+
+        /** An upload finished: hand its value to this screen's card. */
+        fun setVariable(name: String, value: String) {
+            divView.setVariable(name, value)?.let {
+                Log.w(TAG, "setting $name failed: $it")
+            }
         }
 
         /** Covered by a push: videos stop decoding but keep their intent. */
@@ -562,6 +594,71 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Ships the picked photo to the server's @app.upload handler and sets
+     * the picker's variable to whatever it returned — the preview and any
+     * Submit pick it up from there.
+     */
+    private fun uploadPicked(uri: Uri, variable: String, target: ScreenView?) {
+        val type = contentResolver.getType(uri) ?: "application/octet-stream"
+        val name = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && column >= 0) cursor.getString(column) else null
+        } ?: "photo"
+        // Streamed, not buffered: the photo flows from the content provider
+        // straight into the request on OkHttp's worker thread — a 100 MB
+        // original neither fills memory nor stalls the main thread.
+        val streamed = object : RequestBody() {
+            override fun contentType() = type.toMediaType()
+
+            override fun writeTo(sink: BufferedSink) {
+                val input = contentResolver.openInputStream(uri)
+                    ?: throw IOException("picked photo vanished")
+                input.source().use(sink::writeAll)
+            }
+        }
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", name, streamed)
+            .build()
+        val request = authorized(Request.Builder().url("$serverUrl/uploads").post(body)).build()
+        http.newCall(request).enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    Log.w(TAG, "upload failed: $e")
+                    showError("Upload failed — try again")
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (it.code == 401) {
+                            stackHost.post { if (!isDestroyed) onUnauthorized() }
+                            return
+                        }
+                        if (!it.isSuccessful) {
+                            Log.w(TAG, "upload answered HTTP ${it.code}")
+                            showError(
+                                if (it.code == 413) {
+                                    "That photo is too big"
+                                } else {
+                                    "Upload failed — try again"
+                                },
+                            )
+                            return
+                        }
+                        val value = JSONObject(it.body?.string() ?: return).optString("value")
+                        stackHost.post {
+                            if (!isDestroyed) {
+                                (target ?: screens.lastOrNull())
+                                    ?.setVariable(variable, value)
+                            }
+                        }
+                    }
+                }
+            },
+        )
     }
 
     /** The user acted and nothing happened; say so instead of only logging. */
@@ -912,6 +1009,20 @@ class MainActivity : AppCompatActivity() {
                     "submit" -> {
                         val name = url.getQueryParameter("action") ?: return false
                         submit(name, url)
+                        return true
+                    }
+
+                    "pick" -> {
+                        val variable = url.getQueryParameter("variable") ?: return false
+                        pendingPickVariable = variable
+                        // The value belongs to the screen that asked, even
+                        // if the user navigates while the upload runs.
+                        pendingPickScreen = screens.lastOrNull()
+                        pickMedia.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
                         return true
                     }
 

@@ -803,3 +803,48 @@ def test_manifest_fingerprint_rides_on_screens_and_moves_with_the_tabs() -> None
     moved = probe.get("/manifest").headers["x-latawiec-manifest"]
     assert moved != fingerprint
     assert probe.get("/screens/home").headers["x-latawiec-manifest"] == moved
+
+
+def _photo_app() -> lt.Latawiec:
+    albums = lt.Latawiec(max_upload_mb=1)
+
+    @albums.upload
+    def receive(file: lt.Upload, ctx: lt.Context) -> str:
+        return f"{file.name}|{file.content_type}|{len(file.data)}|{ctx.platform}"
+
+    return albums
+
+
+def test_an_upload_reaches_the_handler_with_its_identity() -> None:
+    probe = TestClient(_photo_app())
+    response = probe.post(
+        "/uploads",
+        files={"file": ("kite.jpg", b"x" * 42, "image/jpeg")},
+        headers={"X-Latawiec-Platform": "android"},
+    )
+    assert response.json() == {"value": "kite.jpg|image/jpeg|42|android"}
+
+
+def test_an_oversized_upload_is_413_without_reaching_the_handler() -> None:
+    probe = TestClient(_photo_app())
+    too_big = b"x" * (1024 * 1024 + 1)
+    assert probe.post("/uploads", files={"file": ("big.bin", too_big)}).status_code == 413
+
+
+def test_uploads_respect_auth_and_404_without_a_handler() -> None:
+    assert client.post("/uploads", files={"file": ("a", b"x")}).status_code == 404
+
+    guarded = _photo_app()
+
+    @guarded.auth
+    def auth(token: str | None) -> str | None:
+        return "pat" if token == "sezam" else None
+
+    probe = TestClient(guarded)
+    assert probe.post("/uploads", files={"file": ("a", b"x")}).status_code == 401
+    allowed = probe.post(
+        "/uploads",
+        files={"file": ("a.png", b"xy", "image/png")},
+        headers={"Authorization": "Bearer sezam"},
+    )
+    assert allowed.status_code == 200

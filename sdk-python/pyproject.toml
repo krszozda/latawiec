@@ -9,6 +9,8 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "pydivkit>=33.10,<34",
+    # FastAPI parses the /uploads multipart form through it.
+    "python-multipart>=0.0.9",
 ]
 
 [project.urls]

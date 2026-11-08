@@ -1,5 +1,7 @@
 import DivKit
+import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 import os
 
 private let log = Logger(subsystem: "io.github.krszozda.latawiec", category: "shell")
@@ -27,6 +29,9 @@ final class ScreenViewController: UIViewController {
     /// Poll interval of a refresh=N screen, from its response header.
     private var pollSeconds: TimeInterval?
     private var appeared = false
+
+    /// Which screen variable the in-flight photo pick belongs to.
+    private var pendingPickVariable: String?
 
     init(screen: String) {
         self.screen = screen
@@ -250,6 +255,16 @@ final class ScreenViewController: UIViewController {
             if let action = values.removeValue(forKey: "action") {
                 submit(action: action, values: values)
             }
+        case "pick":
+            if let variable = queryValues(of: url)["variable"] {
+                pendingPickVariable = variable
+                var configuration = PHPickerConfiguration()
+                configuration.filter = .images
+                configuration.selectionLimit = 1
+                let picker = PHPickerViewController(configuration: configuration)
+                picker.delegate = self
+                present(picker, animated: true)
+            }
         case "signout":
             Auth.signOut(to: queryValues(of: url)["screen"])
         case "share":
@@ -328,6 +343,80 @@ final class ScreenViewController: UIViewController {
             }
             guard let screen = answer["navigate"] as? String else { return }
             DispatchQueue.main.async { self?.show(screen: screen) }
+        }.resume()
+    }
+}
+
+extension ScreenViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        let variable = pendingPickVariable
+        pendingPickVariable = nil
+        guard let variable, let provider = results.first?.itemProvider else { return }
+        let mime = provider.registeredTypeIdentifiers.first
+            .flatMap(UTType.init)?.preferredMIMEType ?? "application/octet-stream"
+        provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) {
+            [weak self] url, error in
+            // The temp file dies with this callback, so the bytes are read
+            // here, before hopping threads.
+            guard let url, let data = try? Data(contentsOf: url) else {
+                log.warning("picked photo did not read: \(String(describing: error))")
+                DispatchQueue.main.async { self?.showError("Could not read that photo") }
+                return
+            }
+            // Quotes or line breaks in a filename would corrupt the part
+            // header; PHPicker names are tame, sanitized anyway.
+            let safeName = url.lastPathComponent
+                .replacingOccurrences(of: "\"", with: "_")
+                .components(separatedBy: .newlines).joined()
+            self?.upload(data, name: safeName, mime: mime, into: variable)
+        }
+    }
+
+    /// Ships the picked photo to the server's @app.upload handler and sets
+    /// the picker's variable to whatever it returned — the preview and any
+    /// Submit pick it up from there.
+    private func upload(_ data: Data, name: String, mime: String, into variable: String) {
+        guard let url = URL(string: "\(Server.url)/uploads") else { return }
+        let boundary = "latawiec-\(UUID().uuidString)"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type"
+        )
+        Auth.authorize(&request)
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(
+            Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(name)\"\r\n".utf8)
+        )
+        body.append(Data("Content-Type: \(mime)\r\n\r\n".utf8))
+        body.append(data)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        request.httpBody = body
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if status == 401 {
+                DispatchQueue.main.async { Auth.unauthorized() }
+                return
+            }
+            guard error == nil, status == 200, let data,
+                  let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let value = answer["value"] as? String
+            else {
+                log.warning("upload answered HTTP \(status): \(String(describing: error))")
+                let message = status == 413 ? "That photo is too big" : "Upload failed — try again"
+                DispatchQueue.main.async { self?.showError(message) }
+                return
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.components.variablesStorage.update(
+                    cardId: DivCardID(rawValue: self.screen),
+                    name: DivVariableName(rawValue: variable),
+                    value: value
+                )
+            }
         }.resume()
     }
 }

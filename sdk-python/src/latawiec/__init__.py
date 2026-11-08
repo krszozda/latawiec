@@ -14,6 +14,7 @@ from latawiec.components import (
     Grow,
     Haptic,
     Image,
+    ImagePicker,
     Indicator,
     Navigate,
     OpenUrl,
@@ -38,7 +39,7 @@ from latawiec.components import (
     Video,
     render,
 )
-from latawiec.server import AppLinks, Context, Grant, Latawiec, Tab, Theme
+from latawiec.server import AppLinks, Context, Grant, Latawiec, Tab, Theme, Upload
 
 __all__ = [
     "Action",
@@ -57,6 +58,7 @@ __all__ = [
     "Grow",
     "Haptic",
     "Image",
+    "ImagePicker",
     "Indicator",
     "Latawiec",
     "Navigate",
@@ -81,6 +83,7 @@ __all__ = [
     "Text",
     "TextInput",
     "Theme",
+    "Upload",
     "Video",
     "render",
 ]

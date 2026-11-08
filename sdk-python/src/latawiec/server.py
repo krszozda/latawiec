@@ -9,7 +9,15 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypedDict, cast
 
-from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,6 +72,15 @@ class AppLinks:
 
 
 @dataclass(frozen=True)
+class Upload:
+    """What POST /uploads hands to the @app.upload handler."""
+
+    name: str
+    content_type: str
+    data: bytes
+
+
+@dataclass(frozen=True)
 class Grant:
     """Sign-in result: the shell stores the token and navigates on.
 
@@ -105,6 +122,7 @@ ActionResult = Navigate | Grant | None
 ActionHandler = Callable[..., ActionResult | Awaitable[ActionResult]]
 AuthHandler = Callable[[str | None], Any]
 DeviceHandler = Callable[..., None | Awaitable[None]]
+UploadHandler = Callable[..., str | Awaitable[str]]
 
 
 async def _call(handler: Callable[..., Any], *args: Any) -> Any:
@@ -180,9 +198,14 @@ class Latawiec(FastAPI):
         version: str | None = None,
         dev: bool = True,
         app_links: AppLinks | None = None,
+        max_upload_mb: int = 10,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        if max_upload_mb <= 0:
+            raise ValueError("max_upload_mb is a positive number of megabytes")
+        self.max_upload_mb = max_upload_mb
+        """POST /uploads rejects anything bigger with 413."""
         self.app_links = app_links
         """Served under /.well-known so https links open the shells."""
         self.tabs = tuple(tabs)
@@ -196,6 +219,7 @@ class Latawiec(FastAPI):
         fetch screens over GET and cache them per policy."""
         self._auth: AuthHandler | None = None
         self._device_handler: tuple[DeviceHandler, bool] | None = None
+        self._upload_handler: tuple[UploadHandler, bool] | None = None
         self._live: set[str] = set()
         self._refresh: dict[str, int] = {}
         self._subscribers: dict[str, list[_Subscriber]] = {}
@@ -213,6 +237,7 @@ class Latawiec(FastAPI):
         self.add_api_route("/screens/{name:path}", self._screen_payload)
         self.add_api_route("/actions/{name}", self._action_result, methods=["POST"])
         self.add_api_route("/devices", self._register_device, methods=["POST"])
+        self.add_api_route("/uploads", self._receive_upload, methods=["POST"])
         self.add_api_route("/.well-known/assetlinks.json", self._assetlinks)
         self.add_api_route("/.well-known/apple-app-site-association", self._apple_association)
         self.add_api_websocket_route("/ws/screens/{name:path}", self._screen_socket)
@@ -251,6 +276,20 @@ class Latawiec(FastAPI):
         opens that screen like a deep link. See docs/shipping.md.
         """
         self._device_handler = (handler, _wants_context(handler, without=1))
+        return handler
+
+    def upload(self, handler: UploadHandler) -> UploadHandler:
+        """Register the file sink; ImagePicker uploads land here.
+
+        The handler gets an Upload (and optionally a Context) and returns
+        the string the picker's variable is set to — typically a URL the
+        screen can show and a Submit can forward. Where the bytes go is the
+        app's business: disk, S3, a database. Uploads respect @app.auth the
+        way screens and actions do — with no public variant on purpose:
+        anonymous writable endpoints invite abuse. Anything over
+        max_upload_mb answers 413 before reaching the handler.
+        """
+        self._upload_handler = (handler, _wants_context(handler, without=1))
         return handler
 
     def screen(
@@ -631,6 +670,58 @@ class Latawiec(FastAPI):
         return JSONResponse(
             {"applinks": {"details": [{"appIDs": [links.ios_app_id], "components": [{"/": "/*"}]}]}}
         )
+
+    async def _receive_upload(
+        self,
+        request: Request,
+        file: UploadFile,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, str]:
+        # Auth before existence, like everywhere else: anonymous clients
+        # cannot probe whether the app accepts uploads.
+        user = None
+        if self._auth is not None:
+            user = await _call(self._auth, _bearer(authorization)) or None
+            if user is None:
+                raise HTTPException(
+                    status_code=401,
+                    detail="not authorized",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        if self._upload_handler is None:
+            raise HTTPException(status_code=404, detail="the app registered no upload handler")
+        # The multipart body is already spooled by the framework; the slice
+        # loop only caps what this handler holds in memory. The honest
+        # Content-Length check refuses obvious oversends early.
+        limit = self.max_upload_mb * 1024 * 1024
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > limit + (1 << 20):
+            raise HTTPException(
+                status_code=413,
+                detail=f"uploads are capped at {self.max_upload_mb} MB",
+            )
+        chunks: list[bytes] = []
+        total = 0
+        while chunk := await file.read(1 << 20):
+            total += len(chunk)
+            if total > limit:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"uploads are capped at {self.max_upload_mb} MB",
+                )
+            chunks.append(chunk)
+        received = Upload(
+            name=file.filename or "upload",
+            content_type=file.content_type or "application/octet-stream",
+            data=b"".join(chunks),
+        )
+        handler, wants_context = self._upload_handler
+        args = (
+            (received, Context(user=user, **_device(request.headers)))
+            if wants_context
+            else (received,)
+        )
+        return {"value": await _call(handler, *args)}
 
     async def _register_device(
         self,

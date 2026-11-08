@@ -350,6 +350,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "pydivkit" },
+    { name = "python-multipart" },
 ]
 
 [package.optional-dependencies]
@@ -373,6 +374,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2" },
     { name = "pydivkit", specifier = ">=33.10,<34" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
 ]
 provides-extras = ["mcp"]
 
