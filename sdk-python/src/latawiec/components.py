@@ -179,7 +179,7 @@ class Submit:
     """
 
     action: str
-    send: tuple[str, ...]
+    send: tuple[str, ...] = ()
 
     def to_div_action(self) -> dv.DivAction:
         query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
