@@ -31,6 +31,8 @@ def bubble(author: str, text: str) -> lt.Component:
             margin=lt.Edges(top=8, left=48 if mine else 16, right=16 if mine else 48),
             background="#2962FF" if mine else "#ECEFF1",
             corner_radius=12,
+            # New bubbles fade in on every live refresh instead of popping.
+            appear=lt.Fade(250),
         ),
     )
 
