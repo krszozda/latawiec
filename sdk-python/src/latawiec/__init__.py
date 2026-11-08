@@ -35,10 +35,11 @@ from latawiec.components import (
     Video,
     render,
 )
-from latawiec.server import Context, Grant, Latawiec, Tab, Theme
+from latawiec.server import AppLinks, Context, Grant, Latawiec, Tab, Theme
 
 __all__ = [
     "Action",
+    "AppLinks",
     "Button",
     "Column",
     "Component",

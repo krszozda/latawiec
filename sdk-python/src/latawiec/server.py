@@ -39,6 +39,29 @@ class Theme:
 
 
 @dataclass(frozen=True)
+class AppLinks:
+    """What /.well-known serves, so real https links open the app.
+
+    `android_package` plus `android_fingerprints` (the SHA-256 of the
+    signing certificate, e.g. `keytool -printcert -jarfile app.apk`; any
+    case — it is normalized on the way out) feed assetlinks.json;
+    `ios_app_id` is TEAMID.bundleid and feeds apple-app-site-association.
+    Give only the side you ship and the other file stays 404.
+    docs/shipping.md has the shell-side steps.
+    """
+
+    android_package: str | None = None
+    android_fingerprints: tuple[str, ...] = ()
+    ios_app_id: str | None = None
+
+    def __post_init__(self) -> None:
+        # An empty fingerprint list serves valid JSON that Android can
+        # never verify — a silent install-time failure caught here instead.
+        if self.android_package is not None and not self.android_fingerprints:
+            raise ValueError("android_package needs at least one signing fingerprint")
+
+
+@dataclass(frozen=True)
 class Grant:
     """Sign-in result: the shell stores the token and navigates on.
 
@@ -154,9 +177,12 @@ class Latawiec(FastAPI):
         login: str | None = None,
         version: str | None = None,
         dev: bool = True,
+        app_links: AppLinks | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        self.app_links = app_links
+        """Served under /.well-known so https links open the shells."""
         self.tabs = tuple(tabs)
         self.theme = theme or Theme()
         self.login = login
@@ -185,6 +211,8 @@ class Latawiec(FastAPI):
         self.add_api_route("/screens/{name:path}", self._screen_payload)
         self.add_api_route("/actions/{name}", self._action_result, methods=["POST"])
         self.add_api_route("/devices", self._register_device, methods=["POST"])
+        self.add_api_route("/.well-known/assetlinks.json", self._assetlinks)
+        self.add_api_route("/.well-known/apple-app-site-association", self._apple_association)
         self.add_api_websocket_route("/ws/screens/{name:path}", self._screen_socket)
 
     def assets(self, directory: str) -> None:
@@ -548,6 +576,36 @@ class Latawiec(FastAPI):
         if isinstance(result, Grant):
             return {"navigate": result.screen, "token": result.token}
         return {"navigate": result.screen if result else None}
+
+    async def _assetlinks(self) -> JSONResponse:
+        """Android's domain-ownership proof for App Links."""
+        links = self.app_links
+        if links is None or links.android_package is None:
+            raise HTTPException(status_code=404, detail="no Android app links declared")
+        return JSONResponse(
+            [
+                {
+                    "relation": ["delegate_permission/common.handle_all_urls"],
+                    "target": {
+                        "namespace": "android_app",
+                        "package_name": links.android_package,
+                        # The verifier compares uppercase colon-separated hex.
+                        "sha256_cert_fingerprints": [
+                            fingerprint.upper() for fingerprint in links.android_fingerprints
+                        ],
+                    },
+                }
+            ]
+        )
+
+    async def _apple_association(self) -> JSONResponse:
+        """iOS's domain-ownership proof for Universal Links."""
+        links = self.app_links
+        if links is None or links.ios_app_id is None:
+            raise HTTPException(status_code=404, detail="no iOS app links declared")
+        return JSONResponse(
+            {"applinks": {"details": [{"appIDs": [links.ios_app_id], "components": [{"/": "/*"}]}]}}
+        )
 
     async def _register_device(
         self,

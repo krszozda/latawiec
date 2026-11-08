@@ -98,10 +98,13 @@ App and server (Latawiec subclasses FastAPI):
   Sending is the app's job (its own FCM/APNs credentials); docs/shipping.md
   has the payload shapes.
 - Latawiec(tabs=[Tab(screen, title, icon=None)], theme=Theme(accent="#2962FF"),
-  login=None, version=None, dev=True) declares the native bottom bar, chrome
-  colors, the screen shown on 401, the content version (a change tells shells
-  to drop cached screens), and dev mode (deploy with dev=False: shells then
-  fetch screens over GET and cache them); shells read GET /manifest.
+  login=None, version=None, dev=True, app_links=None) declares the native
+  bottom bar, chrome colors, the screen shown on 401, the content version (a
+  change tells shells to drop cached screens), and dev mode (deploy with
+  dev=False: shells then fetch screens over GET and cache them); shells read
+  GET /manifest. app_links=AppLinks(android_package, android_fingerprints,
+  ios_app_id) makes the server serve both /.well-known ownership files, so
+  https links open the app (App Links / Universal Links).
 - @app.screen(name, cache="static" | "swr" | "no-store") steers the shells'
   screen cache; guarded screens default to no-store, the rest to swr.
 - app.assets("static") serves that directory under /assets — tab icons point

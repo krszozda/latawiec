@@ -712,3 +712,76 @@ def test_same_shape_templates_with_distinct_literals_coexist() -> None:
     probe = TestClient(routed)
     assert probe.get("/screens/x/edit").json()["card"]["states"][0]["div"]["text"] == "edit x"
     assert probe.get("/screens/x/view").json()["card"]["states"][0]["div"]["text"] == "view x"
+
+
+def test_well_known_serves_declared_app_links() -> None:
+    linked = lt.Latawiec(
+        app_links=lt.AppLinks(
+            android_package="com.example.kiteshop",
+            android_fingerprints=("AA:BB:CC",),
+            ios_app_id="TEAM123.com.example.kiteshop",
+        )
+    )
+    probe = TestClient(linked)
+
+    assets = probe.get("/.well-known/assetlinks.json")
+    assert assets.json() == [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.example.kiteshop",
+                "sha256_cert_fingerprints": ["AA:BB:CC"],
+            },
+        }
+    ]
+
+    apple = probe.get("/.well-known/apple-app-site-association")
+    assert apple.headers["content-type"].startswith("application/json")
+    assert apple.json() == {
+        "applinks": {
+            "details": [{"appIDs": ["TEAM123.com.example.kiteshop"], "components": [{"/": "/*"}]}]
+        }
+    }
+
+
+def test_well_known_is_404_for_the_undeclared_side() -> None:
+    android_only = lt.Latawiec(
+        app_links=lt.AppLinks(android_package="com.example.app", android_fingerprints=("aa:bb",))
+    )
+    probe = TestClient(android_only)
+    assets = probe.get("/.well-known/assetlinks.json")
+    assert assets.status_code == 200
+    # Normalized for Android's verifier regardless of how it was typed.
+    assert assets.json()[0]["target"]["sha256_cert_fingerprints"] == ["AA:BB"]
+    assert probe.get("/.well-known/apple-app-site-association").status_code == 404
+
+    bare = TestClient(lt.Latawiec())
+    assert bare.get("/.well-known/assetlinks.json").status_code == 404
+    assert bare.get("/.well-known/apple-app-site-association").status_code == 404
+
+
+def test_an_android_package_without_fingerprints_is_rejected() -> None:
+    try:
+        lt.AppLinks(android_package="com.example.app")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_well_known_stays_public_under_auth() -> None:
+    guarded = lt.Latawiec(
+        app_links=lt.AppLinks(
+            android_package="com.example.app",
+            android_fingerprints=("AA:BB",),
+            ios_app_id="T.com.example.app",
+        )
+    )
+
+    @guarded.auth
+    def reject_everyone(token: str | None) -> None:
+        return None
+
+    probe = TestClient(guarded)
+    assert probe.get("/.well-known/assetlinks.json").status_code == 200
+    assert probe.get("/.well-known/apple-app-site-association").status_code == 200
