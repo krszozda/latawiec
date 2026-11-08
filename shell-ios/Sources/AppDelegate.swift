@@ -156,7 +156,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 Auth.loginScreen = manifest?.login
                 if let manifest, let raw {
                     Server.dev = manifest.dev ?? true
-                    ScreenCache.shared.adoptVersion(manifest.version)
+                    // Cached screens may be rendered per locale, so a
+                    // language change drops them exactly like a version bump.
+                    let languages = Locale.preferredLanguages.joined(separator: ",")
+                    ScreenCache.shared.adoptVersion("\(manifest.version ?? "")|\(languages)")
                     ScreenCache.shared.storeManifest(raw)
                 }
                 if let manifest, !manifest.tabs.isEmpty {

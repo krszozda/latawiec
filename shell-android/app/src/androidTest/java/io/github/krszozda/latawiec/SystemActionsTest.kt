@@ -99,6 +99,19 @@ class SystemActionsTest {
     }
 
     @Test
+    fun deviceContextReachesTheServer() {
+        openSystemScreen()
+        // The fixture renders ctx.platform/ctx.locale into this line.
+        assertTrue(
+            "the server did not see the device context",
+            device.wait(
+                Until.hasObject(By.text(Pattern.compile("Seen\\s+from\\s+android[\\s\\S]*"))),
+                TIMEOUT_MS,
+            ),
+        )
+    }
+
+    @Test
     fun aTapRunsEveryActionInOrder() {
         openSystemScreen()
         // Buzz is (Haptic, Navigate): the navigation proves the second action

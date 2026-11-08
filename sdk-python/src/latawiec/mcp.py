@@ -74,6 +74,9 @@ App and server (Latawiec subclasses FastAPI):
     @app.screen("product/{id}")              # {placeholders} capture path params
     def product(ctx: lt.Context) -> lt.Component:
         return lt.Column(lt.Text(ctx.params["id"]))  # Navigate(f"product/{slug}")
+- ctx also carries what the shell reports: ctx.locale ("pl-PL"), ctx.platform
+  ("android"/"ios"), ctx.timezone ("Europe/Warsaw"), ctx.app_version — all ""
+  when unknown. i18n is a plain `if ctx.locale.startswith("pl")` server-side.
 
 - Builders, action handlers, and the auth check may be sync or `async def`;
   sync ones run in a threadpool, so blocking calls (a database read) are fine.

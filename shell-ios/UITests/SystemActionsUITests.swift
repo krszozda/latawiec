@@ -33,6 +33,15 @@ final class SystemActionsUITests: XCTestCase {
         XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15))
     }
 
+    func testDeviceContextReachesTheServer() {
+        let app = openSystemScreen()
+        // The fixture renders ctx.platform/ctx.locale into this line.
+        let seen = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH 'Seen from ios'")
+        ).firstMatch
+        XCTAssertTrue(seen.waitForExistence(timeout: 15))
+    }
+
     func testATapRunsEveryActionInOrder() {
         let app = openSystemScreen()
         // Buzz is (Haptic, Navigate): the navigation proves the second action

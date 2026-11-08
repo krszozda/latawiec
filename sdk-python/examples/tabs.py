@@ -50,10 +50,15 @@ def form() -> lt.Component:
 
 
 @app.screen("system")
-def system() -> lt.Component:
+def system(ctx: lt.Context) -> lt.Component:
     gutter = lt.Style(margin=lt.Edges(top=12, left=16, right=16))
     return lt.Column(
         lt.Text("System actions", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Text(
+            f"Seen from {ctx.platform or 'somewhere'}, speaking {ctx.locale or 'anything'}",
+            color="#757575",
+            style=lt.Style(margin=lt.Edges(left=16, right=16)),
+        ),
         lt.Button("Copy code", on_tap=lt.CopyToClipboard("kite-42"), style=gutter),
         lt.Button("Share it", on_tap=lt.Share("Kites are great"), style=gutter),
         lt.Button("Open the site", on_tap=lt.OpenUrl("https://example.com/"), style=gutter),

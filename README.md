@@ -37,6 +37,8 @@ Young but real, built in public. Working today, on both shells, from one Python 
 
 - 19 components with a styling layer, native bottom bars, and routed screens —
   `@app.screen("product/{id}")` receives `ctx.params`, builders may be `async`
+- Device context on every request: `ctx.locale`, `ctx.platform`, `ctx.timezone`,
+  `ctx.app_version` — i18n is a plain `if` in your Python
 - Auth end to end: `@app.auth` returns your user object, guarded screens answer
   401/4401, the shells keep the bearer token encrypted (Keystore / Keychain) and
   fall back to your login screen
