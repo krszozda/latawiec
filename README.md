@@ -47,6 +47,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
 - Error and loading states, back stacks that keep screen state, and
   [a shipping guide](docs/shipping.md) that takes a branded shell to Play and
   App Store Connect
+- Deep links: `latawiec://product/42` (or your own scheme) opens that screen,
+  selecting its tab or pushing it onto the stack; https App Links / Universal
+  Links take a manifest edit plus a well-known file on your domain
 
 What it lacks is mileage: no third-party apps in production yet.
 

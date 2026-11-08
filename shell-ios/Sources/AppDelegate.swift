@@ -45,6 +45,13 @@ private struct Manifest: Decodable {
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
+    /// Tab root screens in bar order; a deep link to one selects its tab.
+    private var tabScreens: [String] = []
+
+    /// A deep link that arrived before the manifest; opened once it applies.
+    private var pendingDeepLink: String?
+    private var manifestApplied = false
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -61,6 +68,74 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         self.window = window
         loadManifest()
         return true
+    }
+
+    func application(
+        _ app: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        guard let screen = Self.screenPath(url) else { return false }
+        openDeepLink(screen)
+        return true
+    }
+
+    /// Universal Links land here once a branded build adds the Associated
+    /// Domains entitlement (see docs/shipping.md).
+    func application(
+        _ application: UIApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+    ) -> Bool {
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+              let url = userActivity.webpageURL,
+              let screen = Self.screenPath(url)
+        else { return false }
+        openDeepLink(screen)
+        return true
+    }
+
+    /// Maps a deep-link URL to a screen path. Universal Links carry the
+    /// screen in the https path; a custom scheme starts it at the host, so
+    /// "latawiec://product/42" opens the screen "product/42". The link is
+    /// untrusted: one whose decoded segments could reshape the request path
+    /// they end up in is dropped.
+    static func screenPath(_ url: URL) -> String? {
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let screen: String
+        if url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https" {
+            screen = path
+        } else {
+            screen = [url.host ?? "", path].filter { !$0.isEmpty }.joined(separator: "/")
+        }
+        guard !screen.isEmpty else { return nil }
+        let segments = screen.components(separatedBy: "/")
+        guard segments.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        return screen
+    }
+
+    /// A tab root selects its tab; any other screen pushes onto the stack.
+    private func openDeepLink(_ screen: String) {
+        guard manifestApplied else {
+            pendingDeepLink = screen
+            return
+        }
+        let tabBar = window?.rootViewController as? UITabBarController
+        if let tabBar, let index = tabScreens.firstIndex(of: screen) {
+            tabBar.selectedIndex = index
+            // The link means the root itself, like Android's showRoot — also
+            // when the tab was already selected with screens pushed on top.
+            (tabBar.selectedViewController as? UINavigationController)?
+                .popToRootViewController(animated: false)
+            return
+        }
+        guard let navigation = tabBar?.selectedViewController as? UINavigationController
+            ?? window?.rootViewController as? UINavigationController
+        else { return }
+        // A repeated link would stack the same screen twice and break back.
+        if (navigation.topViewController as? ScreenViewController)?.screen != screen {
+            navigation.pushViewController(ScreenViewController(screen: screen), animated: true)
+        }
     }
 
     private func loadManifest() {
@@ -85,12 +160,18 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                     ScreenCache.shared.storeManifest(raw)
                 }
                 if let manifest, !manifest.tabs.isEmpty {
+                    self.tabScreens = manifest.tabs.map(\.screen)
                     self.window?.rootViewController = Self.tabBarController(for: manifest)
                 } else {
                     if manifest == nil {
                         log.warning("manifest unavailable; falling back to home")
                     }
                     self.window?.rootViewController = Self.fallbackRoot()
+                }
+                self.manifestApplied = true
+                if let screen = self.pendingDeepLink {
+                    self.pendingDeepLink = nil
+                    self.openDeepLink(screen)
                 }
             }
         }.resume()

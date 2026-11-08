@@ -80,6 +80,32 @@ set, list it in `project.yml` next to the sources
 `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` to the target's settings,
 then regenerate with `xcodegen generate`.
 
+## Deep links
+
+Both shells open screens from URLs. A custom scheme works out of the box:
+`latawiec://product/42` launches the app and opens the screen `product/42`
+(the screen path starts at the URL's host). A link to a tab's root screen
+selects that tab; any other screen is pushed onto the current stack.
+
+Brand the scheme with the other identity flags: `-PdeepLinkScheme=kiteshop`
+on Android, `LATAWIEC_URL_SCHEME=kiteshop` on the iOS command line.
+
+Custom schemes are first-come-first-served on both OSes — any installed app
+can claim `kiteshop://` — so links that carry anything sensitive should be
+real `https://` links. For those (App Links / Universal Links, where the
+screen is the URL path), both platforms require proof that you own the
+domain:
+
+- **Android**: add a second `VIEW` intent-filter with
+  `android:autoVerify="true"`, `android:scheme="https"` and your
+  `android:host` to the activity in `app/src/main/AndroidManifest.xml`, and
+  serve `https://yourdomain/.well-known/assetlinks.json` naming your
+  `applicationId` and signing-key fingerprint.
+- **iOS**: add the Associated Domains entitlement
+  (`applinks:yourdomain`) to the target and serve
+  `https://yourdomain/.well-known/apple-app-site-association`. The shell
+  already handles the incoming link.
+
 ## What a release pins
 
 - The shell version (`versionCode`/`CFBundleVersion`) — bump per upload

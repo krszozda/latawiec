@@ -6,12 +6,21 @@
     <application
         android:label="@string/app_name"
         android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- singleTask: a deep link to a running app reuses the activity via
+             onNewIntent instead of stacking a second shell. -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${deepLinkScheme}" />
             </intent-filter>
         </activity>
     </application>

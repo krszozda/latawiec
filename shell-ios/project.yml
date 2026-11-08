@@ -22,11 +22,17 @@ targets:
         # A store build overrides this on the xcodebuild command line and the
         # Info.plist below bakes it in; empty means the dev fallback chain.
         LATAWIEC_SERVER_URL: ""
+        # The custom deep-link scheme ("latawiec://product/42"); a store build
+        # overrides it the same way.
+        LATAWIEC_URL_SCHEME: latawiec
     info:
       path: Info.plist
       properties:
         UILaunchScreen: {}
         LatawiecServerURL: $(LATAWIEC_SERVER_URL)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - $(LATAWIEC_URL_SCHEME)
         NSAppTransportSecurity:
           # The dev loop talks plain http/ws to a local server; anything
           # beyond the local network must use TLS.

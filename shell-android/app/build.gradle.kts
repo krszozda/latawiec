@@ -25,6 +25,8 @@ android {
         // Emulator loopback to a `uvicorn` on the host; override with -PserverUrl=http://...
         val serverUrl = providers.gradleProperty("serverUrl").getOrElse("http://10.0.2.2:8000")
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
+        manifestPlaceholders["deepLinkScheme"] =
+            providers.gradleProperty("deepLinkScheme").getOrElse("latawiec")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The libraries bundle ~80 translations; the shell itself has no strings.
         resourceConfigurations += listOf("en")
