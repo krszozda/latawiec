@@ -34,5 +34,8 @@ and `shell-ios/`.
 - DivKit APIs are verified against the published artifacts (javap on the Android AAR
   classes, the tagged divkit-ios sources) before use, not written from memory.
 - Shell apps stay near native weight: Android release builds are minified and
-  resource-shrunk, and CI enforces an APK size budget (3 MB). A change that needs
-  a bigger budget is discussed in its PR, never slipped in.
+  resource-shrunk, and CI enforces an APK size budget (3 MB). The budget is
+  for the clean default build; a heavy capability ships opt-in per build
+  (gradle properties, like push's -Pfirebase*) with its weight measured in
+  its PR. A change that needs a bigger default budget is discussed in its
+  PR, never slipped in.

@@ -559,7 +559,12 @@ class Indicator(Component):
 
 @dataclass(frozen=True)
 class Video(Component):
-    """A video player fed by URL (iOS plays today; Android awaits a player)."""
+    """A video player fed by URL.
+
+    Both shells play through the platform player (AVPlayer / MediaPlayer),
+    so the supported formats are what the system plays — MP4 and HLS cover
+    it. DASH or DRM needs a custom player factory in the shell.
+    """
 
     url: str
     autoplay: bool = False

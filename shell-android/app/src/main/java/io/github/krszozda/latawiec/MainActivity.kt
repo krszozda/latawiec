@@ -20,6 +20,7 @@ import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.FrameLayout
@@ -111,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         screenCache = ScreenCache(this)
         val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
+            .divPlayerFactory(SystemPlayerFactory())
             .build()
         div2Context = Div2Context(this, configuration)
         bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
@@ -191,6 +193,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         resumed = true
         screens.lastOrNull()?.resumePolling()
+        screens.lastOrNull()?.resumeVideos()
     }
 
     override fun onPause() {
@@ -208,6 +211,7 @@ class MainActivity : AppCompatActivity() {
         screens.forEach {
             it.stop()
             stackHost.removeView(it)
+            it.cleanup()
         }
         screens.clear()
         push(name, animated = false)
@@ -219,6 +223,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun push(name: String, animated: Boolean) {
+        // The covered screen must not keep playing behind the new one.
+        screens.lastOrNull()?.holdVideos()
         val screen = ScreenView(name)
         screens.addLast(screen)
         stackHost.addView(screen, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -235,10 +241,14 @@ class MainActivity : AppCompatActivity() {
         // end action and leak the socket.
         leaving.stop()
         screens.lastOrNull()?.resumePolling()
+        screens.lastOrNull()?.resumeVideos()
         leaving.animate()
             .translationX(stackHost.width.toFloat())
             .setDuration(PUSH_ANIMATION_MS)
-            .withEndAction { stackHost.removeView(leaving) }
+            .withEndAction {
+                stackHost.removeView(leaving)
+                leaving.cleanup()
+            }
     }
 
     /**
@@ -276,6 +286,31 @@ class MainActivity : AppCompatActivity() {
 
         fun stop() {
             socket?.cancel()
+        }
+
+        /** Releases DivKit resources (players included); after removal. */
+        fun cleanup() {
+            divView.cleanup()
+        }
+
+        /** Covered by a push: videos stop decoding but keep their intent. */
+        fun holdVideos() {
+            forEachPlayer(this) { it.hold() }
+        }
+
+        /** Back on top: autoplaying videos pick up again. */
+        fun resumeVideos() {
+            forEachPlayer(this) { it.resume() }
+        }
+
+        private fun forEachPlayer(group: ViewGroup, action: (SystemPlayer) -> Unit) {
+            for (i in 0 until group.childCount) {
+                when (val child = group.getChildAt(i)) {
+                    is SystemPlayerView ->
+                        (child.getAttachedPlayer() as? SystemPlayer)?.let(action)
+                    is ViewGroup -> forEachPlayer(child, action)
+                }
+            }
         }
 
         /**
