@@ -96,15 +96,25 @@ real `https://` links. For those (App Links / Universal Links, where the
 screen is the URL path), both platforms require proof that you own the
 domain:
 
+Latawiec serves both ownership files itself — declare the apps and the
+`/.well-known` endpoints appear on your server:
+
+```python
+app = lt.Latawiec(app_links=lt.AppLinks(
+    android_package="com.example.kiteshop",
+    android_fingerprints=("AA:BB:...",),   # keytool -printcert -jarfile app.apk
+    ios_app_id="TEAMID.com.example.kiteshop",
+))
+```
+
+What remains is per shell:
+
 - **Android**: add a second `VIEW` intent-filter with
   `android:autoVerify="true"`, `android:scheme="https"` and your
-  `android:host` to the activity in `app/src/main/AndroidManifest.xml`, and
-  serve `https://yourdomain/.well-known/assetlinks.json` naming your
-  `applicationId` and signing-key fingerprint.
+  `android:host` to the activity in `app/src/main/AndroidManifest.xml`.
 - **iOS**: add the Associated Domains entitlement
-  (`applinks:yourdomain`) to the target and serve
-  `https://yourdomain/.well-known/apple-app-site-association`. The shell
-  already handles the incoming link.
+  (`applinks:yourdomain`) to the target. The shell already handles the
+  incoming link.
 
 ## Push notifications
 
