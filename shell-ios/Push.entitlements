@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Opt-in: pass CODE_SIGN_ENTITLEMENTS=Push.entitlements on the
+	     xcodebuild command line (docs/shipping.md). The default build stays
+	     entitlement-free so a free-team signing setup keeps working. Store
+	     archives switch the value to "production" automatically. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

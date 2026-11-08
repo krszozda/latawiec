@@ -1,7 +1,9 @@
 package io.github.krszozda.latawiec
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -9,6 +11,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.LocaleList
 import android.util.Log
@@ -26,6 +29,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
+import com.google.firebase.messaging.FirebaseMessaging
 import com.yandex.div.DivDataTag
 import com.yandex.div.coil.CoilDivImageLoader
 import com.yandex.div.core.Div2Context
@@ -128,16 +132,20 @@ class MainActivity : AppCompatActivity() {
         )
 
         // On recreation the task's root intent replays; the link opened once.
-        if (savedInstanceState == null) pendingDeepLink = intent.data?.let(::screenPath)
+        if (savedInstanceState == null) pendingDeepLink = linkedScreen(intent)
         fetchManifest()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val screen = intent.data?.let(::screenPath) ?: return
+        val screen = linkedScreen(intent) ?: return
         if (manifestApplied) openDeepLink(screen) else pendingDeepLink = screen
     }
+
+    /** A deep link carries the screen in its URI, a push tap in an extra. */
+    private fun linkedScreen(intent: Intent): String? =
+        intent.data?.let(::screenPath) ?: intent.getStringExtra("screen")?.let(::rawScreenPath)
 
     /**
      * Maps a deep-link URI to a screen path. App Links carry the screen in
@@ -152,6 +160,12 @@ class MainActivity : AppCompatActivity() {
             "http", "https" -> path
             else -> listOf(uri.host.orEmpty(), path).filter(String::isNotEmpty).joinToString("/")
         }
+        return rawScreenPath(screen)
+    }
+
+    /** The same segment rules for a bare path (a push payload's "screen"). */
+    private fun rawScreenPath(raw: String): String? {
+        val screen = raw.trim('/')
         if (screen.isEmpty()) return null
         val segments = screen.split("/")
         if (segments.any { it.isEmpty() || it == "." || it == ".." }) return null
@@ -453,6 +467,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyManifest(manifest: JSONObject?) {
         loginScreen = manifest?.opt("login") as? String
+        if (manifest?.optBoolean("push") == true) enablePush()
         if (manifest != null) {
             devMode = manifest.optBoolean("dev", true)
             // Cached screens may be rendered per locale, so a language
@@ -496,6 +511,29 @@ class MainActivity : AppCompatActivity() {
         bottomBar.setOnItemReselectedListener {}
         bottomBar.visibility = View.VISIBLE
         showRoot(tabScreens[0])
+    }
+
+    /**
+     * The server registered an @app.device hook; ask to show notifications
+     * and hand it this device's token. Token generation does not wait for
+     * the permission — that only gates showing the notification.
+     */
+    private fun enablePush() {
+        if (BuildConfig.FIREBASE_APP_ID.isEmpty()) {
+            Log.i(TAG, "server enables push but this build has no Firebase config")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
+        }
+        // onNewToken covers rotations; this covers reinstalls of the same
+        // token and a registration POST that failed on an earlier boot.
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { DeviceRegistry.register(this, it) }
+            .addOnFailureListener { Log.w(TAG, "push token fetch failed: $it") }
     }
 
     private fun tintBar(accent: String) {

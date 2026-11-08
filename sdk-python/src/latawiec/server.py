@@ -76,6 +76,7 @@ ScreenBuilder = Callable[..., Component | Awaitable[Component]]
 ActionResult = Navigate | Grant | None
 ActionHandler = Callable[..., ActionResult | Awaitable[ActionResult]]
 AuthHandler = Callable[[str | None], Any]
+DeviceHandler = Callable[..., None | Awaitable[None]]
 
 
 async def _call(handler: Callable[..., Any], *args: Any) -> Any:
@@ -149,6 +150,7 @@ class Latawiec(FastAPI):
         """Dev keeps the live-reload sockets; deploy with dev=False so shells
         fetch screens over GET and cache them per policy."""
         self._auth: AuthHandler | None = None
+        self._device_handler: tuple[DeviceHandler, bool] | None = None
         self._screens: dict[str, tuple[ScreenBuilder, bool]] = {}
         self._actions: dict[str, tuple[ActionHandler, bool]] = {}
         self._public_screens: set[str] = set()
@@ -158,6 +160,7 @@ class Latawiec(FastAPI):
         # :path, so screen names like "product/42" keep their slashes.
         self.add_api_route("/screens/{name:path}", self._screen_payload)
         self.add_api_route("/actions/{name}", self._action_result, methods=["POST"])
+        self.add_api_route("/devices", self._register_device, methods=["POST"])
         self.add_api_websocket_route("/ws/screens/{name:path}", self._screen_socket)
 
     def assets(self, directory: str) -> None:
@@ -175,6 +178,25 @@ class Latawiec(FastAPI):
         handler returns arrives in builders and handlers as `ctx.user`.
         """
         self._auth = handler
+        return handler
+
+    def device(self, handler: DeviceHandler) -> DeviceHandler:
+        """Register the push-token sink; registering it turns push on.
+
+        The shells see "push": true in the manifest, ask for notification
+        permission, and POST the platform's push token here — at startup and
+        whenever the platform rotates it, so the handler must tolerate
+        repeats. It gets the token and optionally a Context: ctx.platform
+        tells FCM and APNs tokens apart, ctx.user is the signed-in user when
+        a bearer token came along. Registration stays public by design —
+        devices exist before anyone signs in — so decide in the handler what
+        anonymous tokens are worth to you.
+
+        Sending pushes stays on your side (your FCM/APNs credentials); put a
+        screen path under the "screen" key of the message's data and the tap
+        opens that screen like a deep link. See docs/shipping.md.
+        """
+        self._device_handler = (handler, _wants_context(handler, without=1))
         return handler
 
     def screen(
@@ -311,6 +333,7 @@ class Latawiec(FastAPI):
             "login": self.login,
             "version": self.version,
             "dev": self.dev,
+            "push": self._device_handler is not None,
         }
 
     async def _screen_payload(
@@ -371,6 +394,29 @@ class Latawiec(FastAPI):
         if isinstance(result, Grant):
             return {"navigate": result.screen, "token": result.token}
         return {"navigate": result.screen if result else None}
+
+    async def _register_device(
+        self,
+        body: dict[str, str],
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, bool]:
+        if self._device_handler is None:
+            raise HTTPException(status_code=404, detail="the app registered no device handler")
+        token = body.get("token", "")
+        if not token:
+            raise HTTPException(status_code=422, detail="token required")
+        # Public on purpose (see device()), but the user still rides along
+        # when a valid bearer token came with the request.
+        user = None
+        if self._auth is not None:
+            user = await _call(self._auth, _bearer(authorization)) or None
+        handler, wants_context = self._device_handler
+        args = (
+            (token, Context(user=user, **_device(request.headers))) if wants_context else (token,)
+        )
+        await _call(handler, *args)
+        return {"registered": True}
 
     async def _screen_socket(self, websocket: WebSocket, name: str) -> None:
         """Send the screen once, then hold the socket open.

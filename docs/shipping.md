@@ -106,6 +106,56 @@ domain:
   `https://yourdomain/.well-known/apple-app-site-association`. The shell
   already handles the incoming link.
 
+## Push notifications
+
+Register a device hook and push turns on — the shells see `"push": true`
+in the manifest, ask the user for permission, and POST the platform's
+token to your server:
+
+```python
+@app.device
+def device(token: str, ctx: lt.Context) -> None:
+    store(token, platform=ctx.platform, user=ctx.user)
+```
+
+The hook gets repeats (tokens rotate; shells re-register on boot), so
+store idempotently. Registration is public by design — devices exist
+before anyone signs in — and `ctx.user` is set once a bearer token rides
+along.
+
+Sending stays on your side, with your credentials. Put the target screen
+under the `screen` key of the message's data and the tap opens it like a
+deep link:
+
+- **Android (FCM)**: create a Firebase project, add an Android app with
+  your `applicationId`, and pass its three values at build time:
+  `-PfirebaseProjectId=... -PfirebaseAppId=1:...:android:...
+  -PfirebaseApiKey=...` (from the project's `google-services.json`:
+  `project_id`, `mobilesdk_app_id`, `current_key`). A build without them
+  runs push-free. Send via the FCM HTTP v1 API:
+
+  ```json
+  {"message": {"token": "<device token>",
+    "notification": {"title": "Order shipped", "body": "Tap to track it"},
+    "data": {"screen": "order/42"}}}
+  ```
+
+- **iOS (APNs)**: enable the Push Notifications capability for your App ID
+  and add `CODE_SIGN_ENTITLEMENTS="$PWD/Push.entitlements"` to the
+  `xcodebuild` command line (the file ships in `shell-ios/`; the default
+  build omits it so free-team signing keeps working — give the flag an
+  absolute path, or Xcode resolves it inside each Swift package too). Send
+  with your APNs key:
+
+  ```json
+  {"aps": {"alert": {"title": "Order shipped", "body": "Tap to track it"}},
+   "screen": "order/42"}
+  ```
+
+The foreground case matches the background one on both platforms: iOS
+shows the banner, the Android shell re-posts the message as a local
+notification (swap its placeholder icon together with the launcher one).
+
 ## What a release pins
 
 - The shell version (`versionCode`/`CFBundleVersion`) — bump per upload

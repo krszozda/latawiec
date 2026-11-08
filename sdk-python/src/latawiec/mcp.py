@@ -84,6 +84,10 @@ App and server (Latawiec subclasses FastAPI):
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
 - @app.action(name) registers a Submit handler: it gets the submitted values
   as dict[str, str] and may return Navigate to send the shell onward.
+- @app.device registers the push-token sink (token, optional ctx) and turns
+  push on; a push message's data "screen" key opens that screen on tap.
+  Sending is the app's job (its own FCM/APNs credentials); docs/shipping.md
+  has the payload shapes.
 - Latawiec(tabs=[Tab(screen, title, icon=None)], theme=Theme(accent="#2962FF"),
   login=None, version=None, dev=True) declares the native bottom bar, chrome
   colors, the screen shown on 401, the content version (a change tells shells

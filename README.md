@@ -54,6 +54,8 @@ Young but real, built in public. Working today, on both shells, from one Python 
   Links take a manifest edit plus a well-known file on your domain
 - System actions from the DSL: `Share`, `OpenUrl`, `CopyToClipboard`, `Haptic` —
   and one tap can run several: `on_tap=(Haptic("success"), Submit(...))`
+- Push notifications: `@app.device` collects tokens (APNs / FCM), your push's
+  `screen` key opens that screen on tap like a deep link
 
 What it lacks is mileage: no third-party apps in production yet.
 
