@@ -37,6 +37,59 @@ def _size(spec: Size) -> dv.DivSize:
 
 
 @dataclass(frozen=True)
+class Fade:
+    """Appearance transition: the component fades in (or out)."""
+
+    duration: int = 300
+    delay: int = 0
+
+
+@dataclass(frozen=True)
+class Slide:
+    """Appearance transition: slides in from (or out through) an edge."""
+
+    edge: Literal["left", "top", "right", "bottom"] = "bottom"
+    duration: int = 300
+    delay: int = 0
+
+
+@dataclass(frozen=True)
+class Grow:
+    """Appearance transition: scales up from nothing (or shrinks away)."""
+
+    duration: int = 300
+    delay: int = 0
+
+
+Transition = Fade | Slide | Grow
+
+
+def _appearance(
+    transition: Transition,
+) -> dv.DivFadeTransition | dv.DivSlideTransition | dv.DivScaleTransition:
+    if isinstance(transition, Fade):
+        return dv.DivFadeTransition(
+            duration=transition.duration, start_delay=transition.delay or None
+        )
+    if isinstance(transition, Slide):
+        return dv.DivSlideTransition(
+            edge=dv.DivSlideTransitionEdge(transition.edge),
+            duration=transition.duration,
+            start_delay=transition.delay or None,
+        )
+    return dv.DivScaleTransition(duration=transition.duration, start_delay=transition.delay or None)
+
+
+# Appearance transitions also fire on live refreshes (data_change), so a
+# streamed chat bubble fades in instead of popping.
+_TRANSITION_TRIGGERS = [
+    dv.DivTransitionTrigger.DATA_CHANGE,
+    dv.DivTransitionTrigger.STATE_CHANGE,
+    dv.DivTransitionTrigger.VISIBILITY_CHANGE,
+]
+
+
+@dataclass(frozen=True)
 class Style:
     """Visual options every component accepts; unset fields keep the component's own look.
 
@@ -57,6 +110,12 @@ class Style:
     align: HorizontalAlign | None = None
     align_vertical: VerticalAlign | None = None
     alpha: float | None = None
+    appear: Transition | None = None
+    """How the component enters: Fade(), Slide("bottom"), or Grow()."""
+    disappear: Transition | None = None
+    """How it leaves; a vanished component animates out instead of popping."""
+    move: int | None = None
+    """Layout changes animate over this many milliseconds."""
 
     def apply(self, div: dv.Div) -> dv.Div:
         if self.padding is not None:
@@ -91,6 +150,14 @@ class Style:
             div.alignment_vertical = dv.DivAlignmentVertical(self.align_vertical)
         if self.alpha is not None:
             div.alpha = self.alpha
+        if self.appear is not None:
+            div.transition_in = _appearance(self.appear)
+        if self.disappear is not None:
+            div.transition_out = _appearance(self.disappear)
+        if self.move is not None:
+            div.transition_change = dv.DivChangeBoundsTransition(duration=self.move)
+        if self.appear is not None or self.disappear is not None or self.move is not None:
+            div.transition_triggers = _TRANSITION_TRIGGERS
         return div
 
 
@@ -402,10 +469,13 @@ class Button(Component):
     on_tap: Action | tuple[Action, ...]
     color: str = "#2962FF"
     text_color: str = "#FFFFFF"
+    tap_animation: Literal["fade", "scale", "none"] | None = None
+    """The press feedback; DivKit's default is a fade+scale combination."""
     style: Style | None = None
 
     def _build(self) -> dv.Div:
         taps = self.on_tap if isinstance(self.on_tap, (tuple, list)) else (self.on_tap,)
+        feedback = "no_animation" if self.tap_animation == "none" else self.tap_animation
         return dv.DivText(
             text=self.label,
             text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
@@ -414,6 +484,9 @@ class Button(Component):
             background=[dv.DivSolidBackground(color=self.color)],
             border=dv.DivBorder(corner_radius=8),
             actions=[tap.to_div_action() for tap in taps],
+            action_animation=(
+                dv.DivAnimation(name=dv.DivAnimationName(feedback)) if feedback else None
+            ),
         )
 
 

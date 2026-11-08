@@ -543,3 +543,58 @@ def test_button_colors_are_customizable() -> None:
     div = card["card"]["states"][0]["div"]
     assert div["background"] == [{"type": "solid", "color": "#00695C"}]
     assert div["text_color"] == "#E0F2F1"
+
+
+def test_appearance_transitions_carry_every_trigger() -> None:
+    card = lt.render(
+        lt.Text(
+            "hi",
+            style=lt.Style(
+                appear=lt.Fade(300),
+                disappear=lt.Slide(edge="left", duration=200, delay=50),
+                move=150,
+            ),
+        )
+    )
+
+    div = card["card"]["states"][0]["div"]
+    assert div["transition_in"] == {"type": "fade", "duration": 300}
+    assert div["transition_out"] == {
+        "type": "slide",
+        "edge": "left",
+        "duration": 200,
+        "start_delay": 50,
+    }
+    assert div["transition_change"] == {"type": "change_bounds", "duration": 150}
+    # data_change included: live refreshes animate too.
+    assert div["transition_triggers"] == ["data_change", "state_change", "visibility_change"]
+
+
+def test_grow_and_the_tap_feedback_render() -> None:
+    card = lt.render(
+        lt.Button(
+            "Go",
+            on_tap=lt.Navigate("x"),
+            tap_animation="none",
+            style=lt.Style(appear=lt.Grow(250)),
+        )
+    )
+
+    div = card["card"]["states"][0]["div"]
+    assert div["transition_in"] == {"type": "scale", "duration": 250}
+    assert div["action_animation"] == {"name": "no_animation"}
+
+
+def test_tap_feedback_names_pass_through_and_slide_pins_its_default_edge() -> None:
+    card = lt.render(
+        lt.Button(
+            "Go",
+            on_tap=lt.Navigate("x"),
+            tap_animation="scale",
+            style=lt.Style(appear=lt.Slide()),
+        )
+    )
+
+    div = card["card"]["states"][0]["div"]
+    assert div["action_animation"] == {"name": "scale"}
+    assert div["transition_in"] == {"type": "slide", "duration": 300, "edge": "bottom"}

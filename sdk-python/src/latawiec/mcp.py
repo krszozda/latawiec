@@ -59,10 +59,14 @@ them: Text("@{dark}"), Text("Size: @{size}"). Submit sends string variables.
 
 Styling — every component takes style=Style(...):
 - Style(padding, margin, width, height, background, corner_radius, border,
-  align, align_vertical, alpha)
+  align, align_vertical, alpha, appear, disappear, move)
 - padding/margin: int for all sides, or Edges(top, right, bottom, left)
 - width/height: dp as int, or "fill" / "wrap"
 - background/border: "#RRGGBB" color; align places the component in its parent
+- appear/disappear: Fade(duration=300, delay=0) | Slide(edge="bottom", ...) |
+  Grow(...) — how the component enters and leaves, also on live refreshes
+  (a streamed chat bubble fades in); move=N animates layout shifts over N ms
+- Button(..., tap_animation="fade" | "scale" | "none") tunes press feedback
 
 App and server (Latawiec subclasses FastAPI):
     import latawiec as lt
