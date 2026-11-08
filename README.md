@@ -35,7 +35,7 @@ Python too.*
 
 Young but real, built in public. Working today, on both shells, from one Python file:
 
-- 13 components with a styling layer, native bottom bars, and routed screens —
+- 19 components with a styling layer, native bottom bars, and routed screens —
   `@app.screen("product/{id}")` receives `ctx.params`, builders may be `async`
 - Auth end to end: `@app.auth` returns your user object, guarded screens answer
   401/4401, the shells keep the bearer token encrypted (Keystore / Keychain) and
@@ -62,8 +62,10 @@ app with 500 screens ships the same shell as an app with five.
 
 ## Components
 
-Layout: `Column`, `Row`, `Gallery` (scrolling list), `Grid`, `Separator`, `Spacer`.
-Content: `Text`, `Image`, `Button`. Forms: `TextInput`, `Switch`, `Select`, `Slider` —
+Layout: `Column`, `Row`, `Stack` (overlap), `Gallery` (scrolling list), `Grid`,
+`Pager` with `Indicator` dots, in-screen `Tabs`, `Separator`, `Spacer`.
+Content: `Text`, `Image`, `GifImage`, `Video`, `Button`.
+Forms: `TextInput`, `Switch`, `Select`, `Slider` —
 each binds a screen variable that any component can read reactively with a DivKit
 expression (`Text("Hello, @{name}!")`), and `Submit` POSTs the values to the server.
 
