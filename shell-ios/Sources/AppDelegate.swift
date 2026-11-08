@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 import os
 
 private let log = Logger(subsystem: "io.github.krszozda.latawiec", category: "shell")
@@ -39,6 +40,7 @@ private struct Manifest: Decodable {
     let login: String?
     let version: String?
     let dev: Bool?
+    let push: Bool?
 }
 
 @main
@@ -66,8 +68,53 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         window.rootViewController?.view.backgroundColor = .systemBackground
         window.makeKeyAndVisible()
         self.window = window
+        // Before anything is delivered, or a cold-start tap would be lost.
+        UNUserNotificationCenter.current().delegate = self
         loadManifest()
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        registerDevice(token: Self.hex(deviceToken))
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        log.warning("push registration failed: \(String(describing: error))")
+    }
+
+    static func hex(_ token: Data) -> String {
+        token.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func enablePush() {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            guard granted else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+    }
+
+    /// Hands the platform's push token to the server's @app.device hook.
+    private func registerDevice(token: String) {
+        guard let url = URL(string: "\(Server.url)/devices") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["token": token])
+        Auth.authorize(&request)
+        URLSession.shared.dataTask(with: request) { _, _, error in
+            if let error {
+                log.warning("device registration failed: \(String(describing: error))")
+            }
+        }.resume()
     }
 
     func application(
@@ -108,6 +155,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         } else {
             screen = [url.host ?? "", path].filter { !$0.isEmpty }.joined(separator: "/")
         }
+        return Self.screenPath(raw: screen)
+    }
+
+    /// The same segment rules for a bare path from outside — a push
+    /// payload's "screen" value, or the path a deep link resolved to.
+    static func screenPath(raw: String) -> String? {
+        let screen = raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !screen.isEmpty else { return nil }
         let segments = screen.components(separatedBy: "/")
         guard segments.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
@@ -176,6 +230,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                     self.pendingDeepLink = nil
                     self.openDeepLink(screen)
                 }
+                if manifest?.push == true {
+                    self.enablePush()
+                }
             }
         }.resume()
     }
@@ -233,5 +290,32 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             blue: CGFloat(rgb & 0xFF) / 255,
             alpha: 1
         )
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    /// A push landing while the app is open still shows as a banner.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler:
+            @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    /// Tapping a push whose payload carries "screen" opens that screen,
+    /// with the same path rules and pending behavior as a deep link.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let payload = response.notification.request.content.userInfo
+        if let raw = payload["screen"] as? String,
+           let screen = Self.screenPath(raw: raw) {
+            openDeepLink(screen)
+        }
+        completionHandler()
     }
 }

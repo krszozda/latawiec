@@ -27,6 +27,20 @@ android {
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         manifestPlaceholders["deepLinkScheme"] =
             providers.gradleProperty("deepLinkScheme").getOrElse("latawiec")
+        // Push rides on Firebase and is branded like everything else: pass
+        // the three values from your Firebase project's Android app (see
+        // docs/shipping.md). Without them the shell runs push-free.
+        for ((field, property) in mapOf(
+            "FIREBASE_PROJECT_ID" to "firebaseProjectId",
+            "FIREBASE_APP_ID" to "firebaseAppId",
+            "FIREBASE_API_KEY" to "firebaseApiKey",
+        )) {
+            buildConfigField(
+                "String",
+                field,
+                "\"${providers.gradleProperty(property).getOrElse("")}\"",
+            )
+        }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The libraries bundle ~80 translations; the shell itself has no strings.
         resourceConfigurations += listOf("en")
@@ -75,6 +89,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.yandex.div:div:33.10.0")
     implementation("com.yandex.div:coil:33.10.0")
+    implementation("com.google.firebase:firebase-messaging:26.0.1")
 
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

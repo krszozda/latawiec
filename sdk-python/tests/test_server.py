@@ -86,6 +86,7 @@ def test_manifest_defaults_to_no_tabs_and_default_theme() -> None:
         "login": None,
         "version": None,
         "dev": True,
+        "push": False,
     }
 
 
@@ -109,6 +110,7 @@ def test_manifest_lists_tabs_and_theme() -> None:
         "login": None,
         "version": None,
         "dev": True,
+        "push": False,
     }
 
 
@@ -443,3 +445,65 @@ def test_action_context_carries_the_device_headers() -> None:
 
     response = TestClient(probed).post("/actions/whereami", json={}, headers=DEVICE_HEADERS)
     assert response.json() == {"navigate": "welcome/pl-PL/android"}
+
+
+def test_device_registration_feeds_the_hook_and_flips_the_manifest_flag() -> None:
+    pushed = lt.Latawiec()
+    tokens: list[tuple[str, str]] = []
+
+    @pushed.device
+    def device(token: str, ctx: lt.Context) -> None:
+        tokens.append((token, ctx.platform))
+
+    probe = TestClient(pushed)
+    assert probe.get("/manifest").json()["push"] is True
+
+    response = probe.post(
+        "/devices", json={"token": "fcm-abc"}, headers={"X-Latawiec-Platform": "android"}
+    )
+    assert response.json() == {"registered": True}
+    assert tokens == [("fcm-abc", "android")]
+
+
+def test_device_registration_without_a_hook_is_404() -> None:
+    assert client.post("/devices", json={"token": "t"}).status_code == 404
+
+
+def test_device_registration_requires_a_token() -> None:
+    pushed = lt.Latawiec()
+
+    @pushed.device
+    def device(token: str) -> None:  # pragma: no cover - never reached
+        raise AssertionError
+
+    assert TestClient(pushed).post("/devices", json={}).status_code == 422
+
+
+def test_device_handler_may_skip_the_context() -> None:
+    pushed = lt.Latawiec()
+    tokens: list[str] = []
+
+    @pushed.device
+    def device(token: str) -> None:
+        tokens.append(token)
+
+    assert TestClient(pushed).post("/devices", json={"token": "bare"}).status_code == 200
+    assert tokens == ["bare"]
+
+
+def test_device_registration_stays_public_but_learns_the_user() -> None:
+    pushed = lt.Latawiec()
+    seen: list[str | None] = []
+
+    @pushed.auth
+    def auth(token: str | None) -> str | None:
+        return "pat" if token == "sezam" else None
+
+    @pushed.device
+    def device(token: str, ctx: lt.Context) -> None:
+        seen.append(ctx.user)
+
+    probe = TestClient(pushed)
+    assert probe.post("/devices", json={"token": "t"}).status_code == 200
+    probe.post("/devices", json={"token": "t"}, headers={"Authorization": "Bearer sezam"})
+    assert seen == [None, "pat"]
