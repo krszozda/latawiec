@@ -173,6 +173,15 @@ The foreground case matches the background one on both platforms: iOS
 shows the banner, the Android shell re-posts the message as a local
 notification (swap its placeholder icon together with the launcher one).
 
+## Location
+
+`RequestLocation` needs no build flag, but iOS shows your own sentence in
+the system prompt and App Store review rejects a vague one. Pass it with
+the `locationReason` input of `ship-ios`, or
+`LATAWIEC_LOCATION_REASON="Finds shops near you."` on the `xcodebuild`
+command line. An app that never asks for a location can delete the two
+`ACCESS_*_LOCATION` lines from `app/src/main/AndroidManifest.xml`.
+
 ## What a release pins
 
 - The shell version (`versionCode`/`CFBundleVersion`) — bump per upload

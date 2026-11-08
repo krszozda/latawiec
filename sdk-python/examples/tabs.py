@@ -87,3 +87,40 @@ def system(ctx: lt.Context) -> lt.Component:
         lt.Button("Open the site", on_tap=lt.OpenUrl("https://example.com/"), style=gutter),
         lt.Button("Buzz", on_tap=(lt.Haptic("success"), lt.Navigate("details")), style=gutter),
     )
+
+
+# Keyed by platform: parallel Android and iOS test runs must not trample
+# each other's state.
+SPOTS: dict[str, str] = {}
+
+
+@app.screen("where", live=True)
+def where(ctx: lt.Context) -> lt.Component:
+    return lt.Column(
+        lt.Text("Where am I", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Button(
+            "Find me",
+            on_tap=lt.RequestLocation("spot", then="note_spot"),
+            style=lt.Style(margin=16),
+        ),
+        lt.Text("At @{spot}", style=lt.Style(margin=lt.Edges(left=16, right=16))),
+        lt.Text(
+            f"Server saw {SPOTS.get(ctx.platform, 'nothing')}",
+            color="#757575",
+            style=lt.Style(margin=lt.Edges(top=12, left=16, right=16)),
+        ),
+    )
+
+
+@app.action("note_spot")
+def note_spot(values: dict[str, str], ctx: lt.Context) -> None:
+    SPOTS[ctx.platform] = values.get("spot") or "nothing"
+    app.refresh("where")
+
+
+@app.action("forget_spot")
+def forget_spot(values: dict[str, str], ctx: lt.Context) -> None:
+    # The UI tests call this first: a fix left over from the last run would
+    # let the assertion pass without the shell doing anything.
+    SPOTS.pop(ctx.platform, None)
+    app.refresh("where")

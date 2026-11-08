@@ -29,6 +29,9 @@ targets:
         # Store builds override these on the xcodebuild command line; the
         # Info.plist below reads them, so the overrides actually land.
         LATAWIEC_APP_NAME: Latawiec
+        # Shown in the system location prompt; say what the app does with a
+        # fix, or the App Store review sends the build back.
+        LATAWIEC_LOCATION_REASON: Shows you content for where you are.
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
     info:
@@ -42,6 +45,7 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - $(LATAWIEC_URL_SCHEME)
+        NSLocationWhenInUseUsageDescription: $(LATAWIEC_LOCATION_REASON)
         NSAppTransportSecurity:
           # The dev loop talks plain http/ws to a local server; anything
           # beyond the local network must use TLS.

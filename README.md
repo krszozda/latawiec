@@ -71,6 +71,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
 - Feed mechanics: `refreshable=True` gives a screen native pull-to-refresh,
   and a `LoadMore("page")` sentinel at the end of a `Gallery` turns a live
   screen into an infinite scroll
+- Location: `RequestLocation("spot", then="search")` raises the system prompt
+  on tap, puts `"lat,lon"` in the variable, and submits the action with it —
+  no Google Play Services on Android, no extra weight on either shell
 
 What it lacks is mileage: no third-party apps in production yet.
 

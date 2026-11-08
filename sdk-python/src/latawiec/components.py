@@ -274,6 +274,28 @@ class SignOut:
 
 
 @dataclass(frozen=True)
+class RequestLocation:
+    """Tap action: ask the device where it is, into `variable` as "lat,lon".
+
+    The first tap raises the system permission prompt, so this belongs on a
+    control the user pressed on purpose. A denial, or a fix that never
+    arrives, leaves the variable empty and the screen decides what that
+    means. `then` submits an action once the answer is in — pairing the two
+    in a tuple instead would fire the submit before the fix arrives.
+    """
+
+    variable: str
+    then: str | None = None
+
+    def to_div_action(self) -> dv.DivAction:
+        then = f"&action={quote(self.then, safe='')}" if self.then else ""
+        return dv.DivAction(
+            log_id="locate",
+            url=f"latawiec://locate?variable={quote(self.variable, safe='')}{then}",
+        )
+
+
+@dataclass(frozen=True)
 class Share:
     """Tap action: open the system share sheet with the text."""
 
@@ -333,7 +355,17 @@ class Haptic:
         )
 
 
-Action = Navigate | SetVariable | Submit | Share | OpenUrl | CopyToClipboard | Haptic | SignOut
+Action = (
+    Navigate
+    | SetVariable
+    | Submit
+    | Share
+    | OpenUrl
+    | CopyToClipboard
+    | Haptic
+    | SignOut
+    | RequestLocation
+)
 
 
 @dataclass(frozen=True)
@@ -544,6 +576,10 @@ class Slider(Component):
         )
 
 
+def _taps(button: Button) -> tuple[Action, ...]:
+    return tuple(button.on_tap) if isinstance(button.on_tap, (tuple, list)) else (button.on_tap,)
+
+
 @dataclass(frozen=True)
 class Button(Component):
     """DivKit has no button primitive, so this is a tappable, button-styled text."""
@@ -557,7 +593,6 @@ class Button(Component):
     style: Style | None = None
 
     def _build(self) -> dv.Div:
-        taps = self.on_tap if isinstance(self.on_tap, (tuple, list)) else (self.on_tap,)
         feedback = "no_animation" if self.tap_animation == "none" else self.tap_animation
         return dv.DivText(
             text=self.label,
@@ -566,7 +601,7 @@ class Button(Component):
             paddings=dv.DivEdgeInsets(top=12, bottom=12, left=20, right=20),
             background=[dv.DivSolidBackground(color=self.color)],
             border=dv.DivBorder(corner_radius=8),
-            actions=[tap.to_div_action() for tap in taps],
+            actions=[tap.to_div_action() for tap in _taps(self)],
             action_animation=(
                 dv.DivAnimation(name=dv.DivAnimationName(feedback)) if feedback else None
             ),
@@ -787,17 +822,28 @@ class Spacer(Component):
 ScreenVariable = dv.StringVariable | dv.BooleanVariable | dv.IntegerVariable
 
 
-def _declared_variable(node: Component) -> tuple[str, ScreenVariable] | None:
+def _declared_variables(node: Component) -> list[tuple[str, ScreenVariable]]:
     if isinstance(node, TextInput | Select):
-        return node.variable, dv.StringVariable(name=node.variable, value=node.initial)
+        return [(node.variable, dv.StringVariable(name=node.variable, value=node.initial))]
     if isinstance(node, ImagePicker):
-        return node.variable, dv.StringVariable(name=node.variable, value="")
+        return [(node.variable, dv.StringVariable(name=node.variable, value=""))]
     if isinstance(node, Switch):
-        return node.variable, dv.BooleanVariable(name=node.variable, value=node.initial)
+        return [(node.variable, dv.BooleanVariable(name=node.variable, value=node.initial))]
     if isinstance(node, Slider):
         value = node.min if node.initial is None else node.initial
-        return node.variable, dv.IntegerVariable(name=node.variable, value=value)
-    return None
+        return [(node.variable, dv.IntegerVariable(name=node.variable, value=value))]
+    return []
+
+
+def _action_variables(node: Component) -> list[tuple[str, ScreenVariable]]:
+    """Variables an action writes into, which no component need carry."""
+    if not isinstance(node, Button):
+        return []
+    return [
+        (tap.variable, dv.StringVariable(name=tap.variable, value=""))
+        for tap in _taps(node)
+        if isinstance(tap, RequestLocation)
+    ]
 
 
 def _screen_variables(root: Component) -> list[ScreenVariable]:
@@ -805,17 +851,23 @@ def _screen_variables(root: Component) -> list[ScreenVariable]:
     # descendants, so a control's variable is hoisted to the card, where
     # sibling expressions like Text("@{name}") can read it.
     declared: dict[str, ScreenVariable] = {}
+    from_actions: dict[str, ScreenVariable] = {}
     stack = [root]
     while stack:
         node = stack.pop()
-        if (found := _declared_variable(node)) is not None:
-            name, variable = found
+        for name, variable in _declared_variables(node):
             if declared.setdefault(name, variable).dict() != variable.dict():
                 raise ValueError(
                     f"variable {name!r} is declared with conflicting types or initial values"
                 )
+        for name, variable in _action_variables(node):
+            from_actions.setdefault(name, variable)
         if isinstance(node, _Container):
             stack.extend(reversed(node.children))
+    # An action aimed at a control's own variable (a fix dropped into a
+    # search box) writes into that declaration instead of fighting it.
+    for name, variable in from_actions.items():
+        declared.setdefault(name, variable)
     return list(declared.values())
 
 
