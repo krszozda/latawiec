@@ -108,6 +108,16 @@ def test_haptic_is_a_typed_divkit_action() -> None:
     }
 
 
+def test_sign_out_names_the_landing_screen_only_when_given() -> None:
+    card = lt.render(lt.Button("Leave", on_tap=lt.SignOut()))
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {"log_id": "signout", "url": "latawiec://signout"}
+
+    card = lt.render(lt.Button("Leave", on_tap=lt.SignOut(screen="bye bye")))
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {"log_id": "signout", "url": "latawiec://signout?screen=bye%20bye"}
+
+
 def test_a_tap_can_run_several_actions_in_order() -> None:
     card = lt.render(lt.Button("Send", on_tap=(lt.Haptic(), lt.Navigate("done"))))
 

@@ -53,6 +53,8 @@ enum Auth {
     static var loginScreen: String?
 
     static func grant(_ token: String) {
+        // A new identity must not inherit the previous one's cached screens.
+        ScreenCache.shared.clear()
         self.token = token
         TokenStore.save(token)
     }
@@ -76,13 +78,27 @@ enum Auth {
     static func unauthorized() {
         token = nil
         TokenStore.clear()
+        // The identity ended, so its cached screens must go with it.
+        ScreenCache.shared.clear()
         guard let login = loginScreen else {
             log.warning("server answered 401 and the manifest names no login screen")
             return
         }
+        restart(on: login)
+    }
+
+    /// The user chose to leave: token and cached screens go together.
+    static func signOut(to screen: String?) {
+        token = nil
+        TokenStore.clear()
+        ScreenCache.shared.clear()
+        restart(on: screen ?? loginScreen ?? "home")
+    }
+
+    private static func restart(on screen: String) {
         let window = (UIApplication.shared.delegate as? AppDelegate)?.window
         window?.rootViewController = UINavigationController(
-            rootViewController: ScreenViewController(screen: login)
+            rootViewController: ScreenViewController(screen: screen)
         )
     }
 }

@@ -48,4 +48,5 @@ def home(ctx: lt.Context) -> lt.Component:
     return lt.Column(
         lt.Text("Signed in", size=28, weight="bold", style=lt.Style(margin=48)),
         lt.Text(f"Hello, {ctx.user} — only a valid token renders this.", style=lt.Style(margin=16)),
+        lt.Button("Sign out", on_tap=lt.SignOut(), style=lt.Style(margin=16)),
     )

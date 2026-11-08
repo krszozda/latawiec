@@ -35,10 +35,21 @@ final class ScreenCache {
         defaults.data(forKey: "latawiec.manifest")
     }
 
+    /// Bumped by every wipe: a store captured before it must not land, or
+    /// an in-flight response would re-poison the cache a sign-out cleared.
+    private(set) var generation = 0
+
+    /// Drops every cached screen now (sign-out, identity change).
+    func clear() {
+        try? FileManager.default.removeItem(at: dir)
+        generation += 1
+    }
+
     /// Drops every cached screen when the served version changes.
     func adoptVersion(_ version: String?) {
         if defaults.string(forKey: "latawiec.version") == version { return }
         try? FileManager.default.removeItem(at: dir)
+        generation += 1
         defaults.set(version, forKey: "latawiec.version")
     }
 
@@ -58,7 +69,8 @@ final class ScreenCache {
         return Entry(policy: policy, payload: payload)
     }
 
-    func store(_ name: String, policy: String, payload: Data) {
+    func store(_ name: String, policy: String, payload: Data, asOf: Int) {
+        guard asOf == generation else { return }
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             var content = Data("\(policy)\n".utf8)

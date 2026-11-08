@@ -4,7 +4,7 @@ import XCTest
 /// `uv run uvicorn examples.auth:app --port 8002` in sdk-python/ first
 /// (next to the hello and tabs fixture servers).
 final class AuthTests: XCTestCase {
-    func testUnauthenticatedShellLandsOnLoginAndSignsIn() {
+    private func signIn() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["LATAWIEC_SERVER_URL"] = "http://127.0.0.1:8002"
         app.launchEnvironment["LATAWIEC_RESET_AUTH"] = "1"
@@ -27,6 +27,11 @@ final class AuthTests: XCTestCase {
         app.staticTexts["Enter"].tap()
 
         XCTAssertTrue(app.staticTexts["Signed in"].waitForExistence(timeout: 10))
+        return app
+    }
+
+    func testUnauthenticatedShellLandsOnLoginAndSignsIn() {
+        let app = signIn()
 
         // The token persisted in the Keychain: a fresh launch (no reset)
         // renders the guarded screen without passing through login.
@@ -35,5 +40,20 @@ final class AuthTests: XCTestCase {
         relaunched.launchEnvironment["LATAWIEC_SERVER_URL"] = "http://127.0.0.1:8002"
         relaunched.launch()
         XCTAssertTrue(relaunched.staticTexts["Signed in"].waitForExistence(timeout: 10))
+    }
+
+    func testSignOutStartsOverAndForgetsTheToken() {
+        let app = signIn()
+
+        app.staticTexts["Sign out"].tap()
+        XCTAssertTrue(app.staticTexts["Sign in"].waitForExistence(timeout: 10))
+
+        // Gone for good: a fresh launch (no reset) lands on login, not the
+        // guarded home.
+        app.terminate()
+        let relaunched = XCUIApplication()
+        relaunched.launchEnvironment["LATAWIEC_SERVER_URL"] = "http://127.0.0.1:8002"
+        relaunched.launch()
+        XCTAssertTrue(relaunched.staticTexts["Sign in"].waitForExistence(timeout: 10))
     }
 }

@@ -27,6 +27,30 @@ class ScreenCacheTest {
     }
 
     @Test
+    fun clearDropsEveryEntryAndStoringWorksAgain() {
+        cache.adoptVersion("k")
+        cache.store("mine", "swr", """{"card": {}}""")
+
+        cache.clear()
+        assertNull(cache.load("mine"))
+
+        // Not a version wipe: the next identity's screens store fine.
+        cache.store("theirs", "swr", """{"card": {}}""")
+        assertEquals("swr", cache.load("theirs")?.policy)
+    }
+
+    @Test
+    fun aStoreFromBeforeAWipeDoesNotLand() {
+        cache.adoptVersion("g")
+        val before = cache.generation
+        cache.clear()
+
+        // An in-flight response from the signed-out identity arrives late.
+        cache.store("inbox", "swr", """{"card": {}}""", asOf = before)
+        assertNull(cache.load("inbox"))
+    }
+
+    @Test
     fun corruptEntryIsDroppedInsteadOfServed() {
         cache.adoptVersion("c")
         // A truncated write: valid policy line, garbage payload.

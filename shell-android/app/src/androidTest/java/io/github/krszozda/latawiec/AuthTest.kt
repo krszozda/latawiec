@@ -47,9 +47,7 @@ class AuthTest {
         )
     }
 
-    @Test
-    fun unauthenticatedShellLandsOnLoginAndSignsIn() {
-        launch()
+    private fun signIn() {
         // The guarded home closes with 4401 and the shell falls back to the
         // manifest's login screen.
         awaitScreenText("Sign in")
@@ -65,6 +63,12 @@ class AuthTest {
         device.findObject(By.text(screenText("Enter"))).click()
 
         awaitScreenText("Signed in")
+    }
+
+    @Test
+    fun unauthenticatedShellLandsOnLoginAndSignsIn() {
+        launch()
+        signIn()
 
         // The token persisted: a relaunch (new Activity; the process
         // survives) decrypts the stored token and renders the guarded
@@ -72,5 +76,19 @@ class AuthTest {
         device.pressHome()
         launch()
         awaitScreenText("Signed in")
+    }
+
+    @Test
+    fun signOutStartsOverAndForgetsTheToken() {
+        launch()
+        signIn()
+
+        device.findObject(By.text(screenText("Sign out"))).click()
+        awaitScreenText("Sign in")
+
+        // Gone for good: a fresh launch lands on login, not the guarded home.
+        device.pressHome()
+        launch()
+        awaitScreenText("Sign in")
     }
 }

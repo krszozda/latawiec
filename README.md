@@ -41,7 +41,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
   `ctx.app_version` — i18n is a plain `if` in your Python
 - Auth end to end: `@app.auth` returns your user object, guarded screens answer
   401/4401, the shells keep the bearer token encrypted (Keystore / Keychain) and
-  fall back to your login screen
+  fall back to your login screen; `SignOut()` drops the token and the screen
+  cache together, and so does every token grant or rejection — a shared phone
+  never shows the previous user's cached screens
 - A production mode: `Latawiec(dev=False, version=...)` switches phones from the
   live-reload socket to GET with a versioned disk cache — screens render instantly
   from the last-known copy, offline included, and a version bump drops every

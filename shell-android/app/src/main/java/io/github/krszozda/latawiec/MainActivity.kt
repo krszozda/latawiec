@@ -333,6 +333,8 @@ class MainActivity : AppCompatActivity() {
          * moves.
          */
         private fun fetch() {
+            // A response that outlives a sign-out wipe must not store.
+            val asOf = screenCache.generation
             val cached = screenCache.load(name)
             if (cached != null) {
                 render(cached.payload)
@@ -386,7 +388,9 @@ class MainActivity : AppCompatActivity() {
                                 refreshSeconds != null -> "poll:$refreshSeconds"
                                 else -> "swr"
                             }
-                            if (policy != "no-store") screenCache.store(name, policy, payload)
+                            if (policy != "no-store") {
+                                screenCache.store(name, policy, payload, asOf)
+                            }
                             render(payload)
                             if (live) {
                                 // A live screen subscribes after its first
@@ -468,12 +472,22 @@ class MainActivity : AppCompatActivity() {
     private fun onUnauthorized() {
         token = null
         tokenStore.clear()
+        // The identity ended, so its cached screens must go with it.
+        screenCache.clear()
         val login = loginScreen
         if (login != null) {
             showRoot(login)
         } else {
             Log.w(TAG, "server answered 401 and the manifest names no login screen")
         }
+    }
+
+    /** The user chose to leave: token and cached screens go together. */
+    private fun signOut(target: String?) {
+        token = null
+        tokenStore.clear()
+        screenCache.clear()
+        showRoot(target ?: loginScreen ?: "home")
     }
 
     private fun parseCard(payload: JSONObject): DivData {
@@ -694,6 +708,9 @@ class MainActivity : AppCompatActivity() {
                         // A sign-in action grants the token every later
                         // request authenticates with.
                         (body.opt("token") as? String)?.let { granted ->
+                            // A new identity must not inherit the previous
+                            // one's cached screens.
+                            screenCache.clear()
                             token = granted
                             tokenStore.save(granted)
                         }
@@ -725,6 +742,11 @@ class MainActivity : AppCompatActivity() {
                     "submit" -> {
                         val name = url.getQueryParameter("action") ?: return false
                         submit(name, url)
+                        return true
+                    }
+
+                    "signout" -> {
+                        signOut(url.getQueryParameter("screen"))
                         return true
                     }
 

@@ -190,6 +190,22 @@ class Submit:
 
 
 @dataclass(frozen=True)
+class SignOut:
+    """Tap action: drop the token AND every cached screen, then start over.
+
+    Both go together on purpose — on a shared phone the next user must not
+    see the previous one's cached renders. The shell lands on `screen`,
+    falling back to the manifest's login screen, then "home".
+    """
+
+    screen: str | None = None
+
+    def to_div_action(self) -> dv.DivAction:
+        query = f"?screen={quote(self.screen, safe='')}" if self.screen else ""
+        return dv.DivAction(log_id="signout", url=f"latawiec://signout{query}")
+
+
+@dataclass(frozen=True)
 class Share:
     """Tap action: open the system share sheet with the text."""
 
@@ -249,7 +265,7 @@ class Haptic:
         )
 
 
-Action = Navigate | SetVariable | Submit | Share | OpenUrl | CopyToClipboard | Haptic
+Action = Navigate | SetVariable | Submit | Share | OpenUrl | CopyToClipboard | Haptic | SignOut
 
 
 @dataclass(frozen=True)
