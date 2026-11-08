@@ -1,0 +1,114 @@
+name: ship-ios
+
+# Builds a branded, signed .ipa ready for App Store Connect. One-time
+# setup, as repository secrets:
+#   IOS_CERT_BASE64        - Apple Distribution .p12, base64-encoded
+#   IOS_CERT_PASSWORD      - the .p12 password
+#   IOS_PROFILE_BASE64     - App Store provisioning profile, base64-encoded
+#   APPLE_TEAM_ID          - the 10-character team id
+# docs/shipping.md walks through where each one comes from.
+
+on:
+  workflow_dispatch:
+    inputs:
+      appId:
+        description: "Bundle identifier (must match the profile)"
+        required: true
+      appName:
+        description: "Display name"
+        required: true
+      serverUrl:
+        description: "Production server URL (https)"
+        required: true
+      versionName:
+        description: "Marketing version, e.g. 1.0"
+        required: true
+      buildNumber:
+        description: "Build number (bump per upload)"
+        required: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: shell-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: brew install xcodegen
+
+      - name: Import the signing identity and profile
+        env:
+          IOS_CERT_BASE64: ${{ secrets.IOS_CERT_BASE64 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/ship.keychain-db"
+          security create-keychain -p ship "$KEYCHAIN"
+          security set-keychain-settings -lut 1800 "$KEYCHAIN"
+          security unlock-keychain -p ship "$KEYCHAIN"
+          echo "$IOS_CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k ship "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES"
+          echo "$IOS_PROFILE_BASE64" | base64 --decode \
+            > "$PROFILES/latawiec.mobileprovision"
+          PROFILE_NAME=$(security cms -D \
+            -i "$PROFILES/latawiec.mobileprovision" \
+            | plutil -extract Name raw -)
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+
+      - name: Archive
+        env:
+          APP_ID: ${{ inputs.appId }}
+          APP_NAME: ${{ inputs.appName }}
+          SERVER_URL: ${{ inputs.serverUrl }}
+          VERSION_NAME: ${{ inputs.versionName }}
+          BUILD_NUMBER: ${{ inputs.buildNumber }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcodegen generate
+          xcodebuild archive \
+            -project LatawiecShell.xcodeproj -scheme LatawiecShell \
+            -archivePath build/Shell.xcarchive \
+            -destination 'generic/platform=iOS' \
+            LATAWIEC_SERVER_URL="$SERVER_URL" \
+            LATAWIEC_APP_NAME="$APP_NAME" \
+            PRODUCT_BUNDLE_IDENTIFIER="$APP_ID" \
+            MARKETING_VERSION="$VERSION_NAME" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
+
+      - name: Export the .ipa
+        env:
+          APP_ID: ${{ inputs.appId }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict><key>$APP_ID</key><string>$PROFILE_NAME</string></dict>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/Shell.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist build/ExportOptions.plist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: shell-ios/build/ipa/*.ipa

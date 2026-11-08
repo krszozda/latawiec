@@ -133,7 +133,12 @@ uv sync
 uv run pytest
 ```
 
-To see a screen on a phone, start the example server and install the shell on a running
+No Android toolchain? Grab `latawiec-shell.apk` from the
+[latest release](https://github.com/krszozda/latawiec/releases/latest), install
+it, and it asks for your server's URL on first start — that plus
+`uvicorn examples.hello:app --host 0.0.0.0` is the whole setup.
+
+To build it yourself, start the example server and install the shell on a running
 emulator (the shell's default server URL is the emulator's host loopback):
 
 ```sh
