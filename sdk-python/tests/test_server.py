@@ -644,3 +644,71 @@ def test_refresh_of_an_unknown_screen_raises() -> None:
         raise AssertionError("expected KeyError")
     except KeyError:
         pass
+
+
+def test_the_more_specific_template_wins() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("{section}/{item}")
+    def anything(ctx: lt.Context) -> lt.Component:
+        return lt.Text(f"general {ctx.params['section']}/{ctx.params['item']}")
+
+    @routed.screen("product/{id}")
+    def product(ctx: lt.Context) -> lt.Component:
+        return lt.Text(f"product {ctx.params['id']}")
+
+    probe = TestClient(routed)
+    div = probe.get("/screens/product/42").json()["card"]["states"][0]["div"]
+    assert div["text"] == "product 42"
+    div = probe.get("/screens/shop/42").json()["card"]["states"][0]["div"]
+    assert div["text"] == "general shop/42"
+
+
+def test_tied_templates_are_rejected_at_registration() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("product/{id}")
+    def product(ctx: lt.Context) -> lt.Component:
+        return lt.Text("product")
+
+    try:
+
+        @routed.screen("{a}/edit")
+        def edit(ctx: lt.Context) -> lt.Component:  # pragma: no cover
+            return lt.Text("edit")
+
+        raise AssertionError("expected ValueError")
+    except ValueError as error:
+        assert "product/{id}" in str(error)
+
+
+def test_re_registering_a_screen_overwrites_it() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("product/{id}")
+    def old(ctx: lt.Context) -> lt.Component:
+        return lt.Text("old")
+
+    @routed.screen("product/{id}")
+    def new(ctx: lt.Context) -> lt.Component:
+        return lt.Text("new")
+
+    div = TestClient(routed).get("/screens/product/1").json()["card"]["states"][0]["div"]
+    assert div["text"] == "new"
+
+
+def test_same_shape_templates_with_distinct_literals_coexist() -> None:
+    routed = lt.Latawiec()
+
+    @routed.screen("{a}/edit")
+    def edit(ctx: lt.Context) -> lt.Component:
+        return lt.Text(f"edit {ctx.params['a']}")
+
+    # Same hole count, but 'edit' vs 'view' can never claim one path.
+    @routed.screen("{b}/view")
+    def view(ctx: lt.Context) -> lt.Component:
+        return lt.Text(f"view {ctx.params['b']}")
+
+    probe = TestClient(routed)
+    assert probe.get("/screens/x/edit").json()["card"]["states"][0]["div"]["text"] == "edit x"
+    assert probe.get("/screens/x/view").json()["card"]["states"][0]["div"]["text"] == "view x"

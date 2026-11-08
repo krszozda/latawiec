@@ -76,6 +76,9 @@ App and server (Latawiec subclasses FastAPI):
     @app.screen("product/{id}")              # {placeholders} capture path params
     def product(ctx: lt.Context) -> lt.Component:
         return lt.Column(lt.Text(ctx.params["id"]))  # Navigate(f"product/{slug}")
+  # Exact names beat templates, and the most-literal template wins. Two
+  # same-shape templates that can claim one path ("{a}/edit" + "product/{id}")
+  # raise ValueError at registration — rename a segment instead.
 - ctx also carries what the shell reports: ctx.locale ("pl-PL"), ctx.platform
   ("android"/"ios"), ctx.timezone ("Europe/Warsaw"), ctx.app_version — all ""
   when unknown. i18n is a plain `if ctx.locale.startswith("pl")` server-side.
