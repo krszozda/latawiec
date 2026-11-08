@@ -13,9 +13,22 @@ from datetime import datetime
 
 import latawiec as lt
 
-app = lt.Latawiec(dev=False, version="1")
+app = lt.Latawiec(dev=False, version="1", tabs=[lt.Tab("home", "Home")])
 
 count = 0
+
+
+# The chatbot use case, miniaturized: an action mutates the tabs and the
+# shells pick the new bar up mid-session from the manifest fingerprint
+# riding on every screen response. The UI tests drive these two directly.
+@app.action("grow")
+def grow(values: dict[str, str]) -> None:
+    app.tabs = (lt.Tab("home", "Home"), lt.Tab("clock", "Clock"))
+
+
+@app.action("reset")
+def reset(values: dict[str, str]) -> None:
+    app.tabs = (lt.Tab("home", "Home"),)
 
 
 @app.screen("home", live=True)

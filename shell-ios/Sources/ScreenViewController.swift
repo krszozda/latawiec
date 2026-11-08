@@ -146,6 +146,13 @@ final class ScreenViewController: UIViewController {
                 ScreenCache.shared.store(self.screen, policy: policy, payload: data, asOf: asOf)
             }
             self.show(data: data)
+            if let fingerprint = http?.value(forHTTPHeaderField: "X-Latawiec-Manifest") {
+                // The chrome changed server-side (a tab appeared?).
+                DispatchQueue.main.async {
+                    (UIApplication.shared.delegate as? AppDelegate)?
+                        .manifestChanged(to: fingerprint)
+                }
+            }
             if live {
                 // A live screen subscribes after its first render; every
                 // app.refresh() lands here.

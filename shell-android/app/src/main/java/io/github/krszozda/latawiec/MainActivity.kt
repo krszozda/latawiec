@@ -107,6 +107,11 @@ class MainActivity : AppCompatActivity() {
     private var pendingDeepLink: String? = null
     private var manifestApplied = false
 
+    /** Fingerprint of the applied manifest; a mismatch means refetch. */
+    private var manifestHash: String? = null
+    private var askedForNotifications = false
+    private var pushEnabled = false
+
     /**
      * One view per screen, stacked like iOS's navigation controllers: popping
      * uncovers the previous view with its DivKit variables intact, instead of
@@ -251,6 +256,9 @@ class MainActivity : AppCompatActivity() {
         resumed = true
         screens.lastOrNull()?.resumePolling()
         screens.lastOrNull()?.resumeVideos()
+        // The chrome may have changed while the app was away; the first
+        // resume is still mid-boot (manifestApplied false) and skips this.
+        if (manifestApplied) fetchManifest()
     }
 
     override fun onPause() {
@@ -484,6 +492,19 @@ class MainActivity : AppCompatActivity() {
                                 screenCache.store(name, policy, payload, asOf)
                             }
                             render(payload)
+                            it.header("X-Latawiec-Manifest")?.let { seen ->
+                                // The chrome changed server-side (a tab
+                                // appeared?); refetch once, not per screen.
+                                // Compared on main: manifestHash lives there.
+                                post {
+                                    if (!isDestroyed && manifestApplied &&
+                                        seen != manifestHash
+                                    ) {
+                                        manifestHash = seen
+                                        fetchManifest()
+                                    }
+                                }
+                            }
                             if (live) {
                                 // A live screen subscribes after its first
                                 // render; every app.refresh() lands here.
@@ -609,6 +630,13 @@ class MainActivity : AppCompatActivity() {
                     }
                     stackHost.post {
                         if (isDestroyed) return@post
+                        // A redeploy blip mid-session must not nuke the
+                        // chrome; a cleared hash retries on the next
+                        // fingerprint or foreground.
+                        if (manifestApplied) {
+                            manifestHash = null
+                            return@post
+                        }
                         // A typed address that never answered once is most
                         // likely a typo; ask again instead of spinning.
                         if (remembered == null && BuildConfig.SERVER_URL.isEmpty()) {
@@ -620,8 +648,10 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onResponse(call: Call, response: Response) {
+                    var fingerprint: String? = null
                     val manifest = response.use {
                         if (it.isSuccessful) {
+                            fingerprint = it.header("X-Latawiec-Manifest")
                             try {
                                 JSONObject(it.body?.string() ?: "")
                             } catch (e: JSONException) {
@@ -633,7 +663,15 @@ class MainActivity : AppCompatActivity() {
                             null
                         }
                     }
-                    stackHost.post { if (!isDestroyed) boot(manifest) }
+                    stackHost.post {
+                        if (isDestroyed) return@post
+                        if (manifest == null && manifestApplied) {
+                            manifestHash = null
+                            return@post
+                        }
+                        if (manifest != null) manifestHash = fingerprint
+                        boot(manifest)
+                    }
                 }
             },
         )
@@ -664,27 +702,51 @@ class MainActivity : AppCompatActivity() {
         }
         val tabs = manifest?.optJSONArray("tabs")
         if (tabs == null || tabs.length() == 0) {
-            showRoot("home")
+            bottomBar.menu.clear()
+            bottomBar.visibility = View.GONE
+            // Re-applied mid-session with the same (lack of) tabs: the
+            // stack the user is in stays put.
+            if (tabRoots.isNotEmpty() || screens.isEmpty()) {
+                tabRoots = emptyList()
+                showRoot("home")
+            }
             return
         }
         val tabScreens = ArrayList<String>(tabs.length())
+        val tabTitles = ArrayList<String>(tabs.length())
+        val tabIcons = ArrayList<String?>(tabs.length())
         try {
             for (i in 0 until tabs.length()) {
                 val tab = tabs.getJSONObject(i)
                 tabScreens.add(tab.getString("screen"))
-                val item = bottomBar.menu.add(Menu.NONE, i, i, tab.getString("title"))
-                item.icon = placeholderIcon()
-                if (!tab.isNull("icon")) loadIcon(tab.getString("icon"), item)
+                tabTitles.add(tab.getString("title"))
+                tabIcons.add(if (tab.isNull("icon")) null else tab.getString("icon"))
             }
         } catch (e: JSONException) {
             Log.w(TAG, "manifest tabs are malformed: $e")
             bottomBar.menu.clear()
+            bottomBar.visibility = View.GONE
+            tabRoots = emptyList()
             showRoot("home")
             return
         }
+        // The same roots re-applied mid-session must not reset the stack:
+        // keep the selection, refresh what the bar shows.
+        val sameRoots = tabScreens == tabRoots
+        val selected = if (sameRoots) bottomBar.selectedItemId else 0
+        // menu.clear() resets the bar's selection, so restoring it below
+        // fires a change event — which must not reach the old listener.
+        bottomBar.setOnItemSelectedListener(null)
+        bottomBar.menu.clear()
+        for (i in tabScreens.indices) {
+            val item = bottomBar.menu.add(Menu.NONE, i, i, tabTitles[i])
+            item.icon = placeholderIcon()
+            tabIcons[i]?.let { loadIcon(it, item) }
+        }
         val accent = manifest.optJSONObject("theme")?.optString("accent").orEmpty()
         if (accent.isNotEmpty()) tintBar(accent)
-        bottomBar.selectedItemId = 0
+        // Selection before the listener: restoring it must not re-navigate.
+        bottomBar.selectedItemId = selected
         tabRoots = tabScreens
         bottomBar.setOnItemSelectedListener { item ->
             showRoot(tabScreens[item.itemId])
@@ -694,7 +756,7 @@ class MainActivity : AppCompatActivity() {
         // selected listener, which would reset the tab.
         bottomBar.setOnItemReselectedListener {}
         bottomBar.visibility = View.VISIBLE
-        showRoot(tabScreens[0])
+        if (!sameRoots) showRoot(tabScreens[0])
     }
 
     /**
@@ -703,14 +765,21 @@ class MainActivity : AppCompatActivity() {
      * the permission — that only gates showing the notification.
      */
     private fun enablePush() {
+        // Manifest refreshes re-run this; registering once per launch is
+        // enough (onNewToken covers rotations).
+        if (pushEnabled) return
         if (BuildConfig.FIREBASE_APP_ID.isEmpty()) {
             Log.i(TAG, "server enables push but this build has no Firebase config")
             return
         }
-        if (Build.VERSION.SDK_INT >= 33 &&
+        pushEnabled = true
+        if (!askedForNotifications &&
+            Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+            // Manifest refreshes re-run enablePush; one ask per launch.
+            askedForNotifications = true
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
         }
         // onNewToken covers rotations; this covers reinstalls of the same
