@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreLocation
 import DivKit
 import PhotosUI
@@ -12,6 +13,27 @@ private let notAuthorized = 4401
 
 /// How long a RequestLocation waits for a fix before giving up on one.
 private let fixTimeout: TimeInterval = 10
+
+/// What a tap on an ImagePicker(source="camera") can do.
+enum CameraGate {
+    case ready
+    /// Access was turned off in Settings; only the user can undo that.
+    case accessOff
+    case missing
+}
+
+/// Both ways the camera can be unusable end in a sentence rather than in
+/// the blank capture screen UIKit otherwise presents. `.notDetermined` is
+/// ready on purpose: the picker raises the system prompt itself, which is
+/// the one tap the user expects.
+func cameraGate(status: AVAuthorizationStatus, hasCamera: Bool) -> CameraGate {
+    switch status {
+    case .denied, .restricted:
+        return .accessOff
+    default:
+        return hasCamera ? .ready : .missing
+    }
+}
 
 /// One Latawiec screen: a DivView fed over a WebSocket.
 ///
@@ -369,14 +391,19 @@ final class ScreenViewController: UIViewController {
                 submit(action: action, values: values)
             }
         case "pick":
-            if let variable = queryValues(of: url)["variable"] {
+            let values = queryValues(of: url)
+            if let variable = values["variable"] {
                 pendingPickVariable = variable
-                var configuration = PHPickerConfiguration()
-                configuration.filter = .images
-                configuration.selectionLimit = 1
-                let picker = PHPickerViewController(configuration: configuration)
-                picker.delegate = self
-                present(picker, animated: true)
+                if values["source"] == "camera" {
+                    shoot()
+                } else {
+                    var configuration = PHPickerConfiguration()
+                    configuration.filter = .images
+                    configuration.selectionLimit = 1
+                    let picker = PHPickerViewController(configuration: configuration)
+                    picker.delegate = self
+                    present(picker, animated: true)
+                }
             }
         case "locate":
             let values = queryValues(of: url)
@@ -522,6 +549,36 @@ extension ScreenViewController: PHPickerViewControllerDelegate {
         }
     }
 
+    private func shoot() {
+        // The simulator claims to have a camera and then shows a blank
+        // capture screen, so it is told apart at compile time — the dev loop
+        // gets the same message a camera-less device does.
+        #if targetEnvironment(simulator)
+        let hasCamera = false
+        #else
+        let hasCamera = UIImagePickerController.isSourceTypeAvailable(.camera)
+        #endif
+        switch cameraGate(
+            status: AVCaptureDevice.authorizationStatus(for: .video),
+            hasCamera: hasCamera
+        ) {
+        case .accessOff:
+            pendingPickVariable = nil
+            showError("Camera access is off — turn it on in Settings")
+            return
+        case .missing:
+            pendingPickVariable = nil
+            showError("This device has no camera")
+            return
+        case .ready:
+            break
+        }
+        let camera = UIImagePickerController()
+        camera.sourceType = .camera
+        camera.delegate = self
+        present(camera, animated: true)
+    }
+
     /// Ships the picked photo to the server's @app.upload handler and sets
     /// the picker's variable to whatever it returned — the preview and any
     /// Submit pick it up from there.
@@ -594,5 +651,37 @@ extension ScreenViewController: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         log.warning("location failed: \(String(describing: error))")
         deliverLocation("")
+    }
+}
+
+extension ScreenViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    func imagePickerController(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+    ) {
+        let variable = pendingPickVariable
+        pendingPickVariable = nil
+        let image = info[.originalImage] as? UIImage
+        picker.dismiss(animated: true) { [weak self] in
+            guard let self, let variable, let image else { return }
+            // A camera shot arrives as pixels, not a file: JPEG at 0.9 keeps
+            // it indistinguishable while cutting the upload several times
+            // over. Encoding a full-resolution frame is slow enough to drop
+            // frames, so it happens off the main thread.
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let data = image.jpegData(compressionQuality: 0.9) else {
+                    DispatchQueue.main.async { self.showError("Could not read that photo") }
+                    return
+                }
+                DispatchQueue.main.async {
+                    self.upload(data, name: "shot.jpg", mime: "image/jpeg", into: variable)
+                }
+            }
+        }
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+        pendingPickVariable = nil
     }
 }

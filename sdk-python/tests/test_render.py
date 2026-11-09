@@ -644,13 +644,26 @@ def test_image_picker_declares_its_variable_and_toggles_preview() -> None:
 
     assert card["card"]["variables"] == [{"type": "string", "name": "photo", "value": ""}]
     div = card["card"]["states"][0]["div"]
-    assert div["actions"] == [{"log_id": "pick", "url": "latawiec://pick?variable=photo"}]
+    assert div["actions"] == [
+        {"log_id": "pick:gallery", "url": "latawiec://pick?variable=photo&source=gallery"}
+    ]
     placeholder, preview = div["items"]
     assert placeholder["text"] == "Add one"
     assert placeholder["visibility"] == "@{photo == '' ? 'visible' : 'gone'}"
     assert preview["image_url"] == "@{photo}"
     assert preview["visibility"] == "@{photo != '' ? 'visible' : 'gone'}"
     assert preview["height"] == {"type": "fixed", "value": 120}
+
+
+def test_image_picker_can_ask_for_the_camera_instead() -> None:
+    card = lt.render(lt.ImagePicker("photo", source="camera"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["actions"] == [
+        {"log_id": "pick:camera", "url": "latawiec://pick?variable=photo&source=camera"}
+    ]
+    # The placeholder says what the tap will do, without being told.
+    assert div["items"][0]["text"] == "Take a photo"
 
 
 def test_load_more_fires_its_action_on_sight() -> None:
