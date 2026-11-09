@@ -72,6 +72,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
 - Feed mechanics: `refreshable=True` gives a screen native pull-to-refresh,
   and a `LoadMore("page")` sentinel at the end of a `Gallery` turns a live
   screen into an infinite scroll
+- Biometrics: `Unlock("pay", send=("amount",))` asks for the fingerprint, the
+  face or the passcode and submits the action only once it passes — a gate in
+  front of the tap, with the server-side check still yours to write
 - Location: `RequestLocation("spot", then="search")` raises the system prompt
   on tap, puts `"lat,lon"` in the variable, and submits the action with it —
   no Google Play Services on Android, no extra weight on either shell

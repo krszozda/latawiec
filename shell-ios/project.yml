@@ -34,6 +34,9 @@ targets:
         LATAWIEC_LOCATION_REASON: Shows you content for where you are.
         # Shown in the system camera prompt; same App Store rule applies.
         LATAWIEC_CAMERA_REASON: Lets you add a photo you take yourself.
+        # Shown the first time Face ID is used; Touch ID and the passcode
+        # need no string of their own.
+        LATAWIEC_FACEID_REASON: Confirms it is you before a sensitive action.
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
     info:
@@ -48,6 +51,7 @@ targets:
           - CFBundleURLSchemes:
               - $(LATAWIEC_URL_SCHEME)
         NSCameraUsageDescription: $(LATAWIEC_CAMERA_REASON)
+        NSFaceIDUsageDescription: $(LATAWIEC_FACEID_REASON)
         NSLocationWhenInUseUsageDescription: $(LATAWIEC_LOCATION_REASON)
         NSAppTransportSecurity:
           # The dev loop talks plain http/ws to a local server; anything

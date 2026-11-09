@@ -1,6 +1,7 @@
 package io.github.krszozda.latawiec
 
 import android.Manifest
+import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,12 +11,16 @@ import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
+import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK
+import android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+import android.hardware.biometrics.BiometricPrompt
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.LocaleList
 import android.provider.OpenableColumns
 import android.text.InputType
@@ -35,6 +40,7 @@ import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
@@ -82,6 +88,9 @@ private const val PUSH_ANIMATION_MS = 250L
 
 /** How long a RequestLocation waits for a fix before giving up on one. */
 private const val FIX_TIMEOUT_MS = 10_000L
+
+/** Both shells word it the same way, so the docs can promise it. */
+private const val NO_LOCK = "This device has no lock set up"
 
 /** How long a camera shot stays in the cache before it is swept. */
 private const val PHOTO_KEEP_MS = 24 * 60 * 60 * 1000L
@@ -139,6 +148,17 @@ class MainActivity : AppCompatActivity() {
 
     /** Where the camera app was told to write, and where we read it back. */
     private var pendingPhotoUri: Uri? = null
+
+    /** The submit waiting behind the device's own unlock screen. */
+    private var pendingUnlock: Pair<String, JSONObject>? = null
+    private var unlockSignal: CancellationSignal? = null
+    private val confirmCredential =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val ask = pendingUnlock
+            pendingUnlock = null
+            // A cancel is an answer, not a failure worth a dialog.
+            if (result.resultCode == RESULT_OK && ask != null) submit(ask.first, ask.second)
+        }
     private val pickMedia =
         registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             val variable = pendingPickVariable
@@ -220,6 +240,10 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState != null) {
             pendingPickVariable = savedInstanceState.getString("pendingPickVariable")
             pendingPhotoUri = savedInstanceState.getString("pendingPhotoUri")?.let(Uri::parse)
+            savedInstanceState.getString("pendingUnlockAction")?.let { action ->
+                val values = savedInstanceState.getString("pendingUnlockValues") ?: "{}"
+                pendingUnlock = action to JSONObject(values)
+            }
             // The screen is gone with the old activity; the fix lands on
             // whichever screen is showing when it arrives.
             savedInstanceState.getString("pendingLocationVariable")?.let {
@@ -247,6 +271,10 @@ class MainActivity : AppCompatActivity() {
         // prompt behind a RequestLocation is the same story.
         outState.putString("pendingPickVariable", pendingPickVariable)
         outState.putString("pendingPhotoUri", pendingPhotoUri?.toString())
+        pendingUnlock?.let { (action, values) ->
+            outState.putString("pendingUnlockAction", action)
+            outState.putString("pendingUnlockValues", values.toString())
+        }
         outState.putString("pendingLocationVariable", pendingLocation?.variable)
         outState.putString("pendingLocationAction", pendingLocation?.action)
     }
@@ -352,6 +380,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        unlockSignal?.cancel()
         cancelFix()
         screens.forEach(ScreenView::stop)
         super.onDestroy()
@@ -682,6 +711,84 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * The device's own check — a fingerprint, a face, or the passcode —
+     * in front of a submit. It gates the tap, not the server: the action
+     * POSTs like any other once the check passes.
+     */
+    private fun unlock(url: Uri) {
+        val action = url.getQueryParameter("action") ?: return
+        val reason = url.getQueryParameter("reason").orEmpty()
+        val values = JSONObject()
+        for (key in url.queryParameterNames) {
+            if (key != "action" && key != "reason") values.put(key, url.getQueryParameter(key))
+        }
+        // A fingerprint cannot be enrolled without a PIN behind it, so this
+        // one question answers for every method at once — and answers it
+        // before a prompt appears, which error codes cannot: asking for
+        // biometrics and the passcode together reports "no fingerprints"
+        // when the truth is that the device has no lock at all.
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        if (keyguard == null || !keyguard.isDeviceSecure) {
+            showError(NO_LOCK)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            promptForUnlock(action, values, reason)
+            return
+        }
+        // BiometricPrompt gained the passcode fallback in API 29; before
+        // that the lock screen itself is the prompt.
+        val intent = keyguard.createConfirmDeviceCredentialIntent(reason, null)
+        if (intent == null) {
+            showError(NO_LOCK)
+            return
+        }
+        pendingUnlock = action to values
+        confirmCredential.launch(intent)
+    }
+
+    @RequiresApi(29)
+    private fun promptForUnlock(action: String, values: JSONObject, reason: String) {
+        val prompt = BiometricPrompt.Builder(this)
+            .setTitle(reason)
+            .apply {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    setAllowedAuthenticators(BIOMETRIC_WEAK or DEVICE_CREDENTIAL)
+                } else {
+                    @Suppress("DEPRECATION")
+                    setDeviceCredentialAllowed(true)
+                }
+            }
+            .build()
+        val signal = CancellationSignal()
+        unlockSignal = signal
+        prompt.authenticate(
+            signal,
+            mainExecutor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(
+                    result: BiometricPrompt.AuthenticationResult,
+                ) {
+                    unlockSignal = null
+                    submit(action, values)
+                }
+
+                override fun onAuthenticationError(code: Int, message: CharSequence) {
+                    // Only this one means what NO_LOCK says; a busy sensor
+                    // or a lockout is neither, and the system dialog has
+                    // already told the user about those in its own words.
+                    unlockSignal = null
+                    if (code == BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL) {
+                        showError(NO_LOCK)
+                    } else {
+                        Log.w(TAG, "unlock error $code: $message")
+                    }
+                }
+            },
+        )
     }
 
     /**
@@ -1246,6 +1353,11 @@ class MainActivity : AppCompatActivity() {
                     "submit" -> {
                         val name = url.getQueryParameter("action") ?: return false
                         submit(name, url)
+                        return true
+                    }
+
+                    "unlock" -> {
+                        unlock(url)
                         return true
                     }
 

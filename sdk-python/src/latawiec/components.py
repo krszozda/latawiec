@@ -237,6 +237,13 @@ class SetVariable:
         )
 
 
+def _reject_reserved(send: tuple[str, ...], reserved: tuple[str, ...]) -> None:
+    """A variable sharing a name with the URL's own keys would be dropped."""
+    clash = [name for name in send if name in reserved]
+    if clash:
+        raise ValueError(f"cannot send {clash[0]!r}: the action URL already uses that name")
+
+
 @dataclass(frozen=True)
 class Submit:
     """Tap action: POST the named screen variables to a server action handler.
@@ -249,11 +256,54 @@ class Submit:
     action: str
     send: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        _reject_reserved(self.send, ("action",))
+
     def to_div_action(self) -> dv.DivAction:
         query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
         return dv.DivAction(
             log_id=f"submit:{self.action}",
             url=f"latawiec://submit?action={quote(self.action, safe='')}{query}",
+        )
+
+
+@dataclass(frozen=True)
+class Unlock:
+    """Tap action: ask for the device unlock, then submit `action`.
+
+    Face ID, a fingerprint, or the device passcode — whichever the phone
+    offers. The submitted values travel exactly as Submit's do, and the
+    handler may answer with a Navigate.
+
+    This is a gate in front of a tap, not proof for your server: the shell
+    submits the action once the check passes, and nothing stops a patched
+    client from submitting it anyway. Anything that must not happen for
+    the wrong person still needs @app.auth and a check in the handler.
+
+    A device with nothing enrolled, and a user who cancels, submit
+    nothing; the first case says why.
+    """
+
+    action: str
+    send: tuple[str, ...] = ()
+    reason: str = "Confirm it's you"
+    """Shown in the system prompt, so say what is being confirmed."""
+
+    def __post_init__(self) -> None:
+        # Both shells raise their prompt with this as its title, and both
+        # platforms reject an empty one — iOS by throwing.
+        if not self.reason:
+            raise ValueError("Unlock needs a reason: it is the prompt's title")
+        _reject_reserved(self.send, ("action", "reason"))
+
+    def to_div_action(self) -> dv.DivAction:
+        query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
+        return dv.DivAction(
+            log_id=f"unlock:{self.action}",
+            url=(
+                f"latawiec://unlock?action={quote(self.action, safe='')}"
+                f"&reason={quote(self.reason, safe='')}{query}"
+            ),
         )
 
 
@@ -365,6 +415,7 @@ Action = (
     | Haptic
     | SignOut
     | RequestLocation
+    | Unlock
 )
 
 

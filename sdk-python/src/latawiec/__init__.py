@@ -38,6 +38,7 @@ from latawiec.components import (
     Tabs,
     Text,
     TextInput,
+    Unlock,
     Video,
     render,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "Text",
     "TextInput",
     "Theme",
+    "Unlock",
     "Upload",
     "Video",
     "render",

@@ -157,6 +157,34 @@ def test_request_location_writes_into_an_existing_control_variable() -> None:
     assert card["card"]["variables"] == [{"type": "string", "name": "spot", "value": "Warsaw"}]
 
 
+def test_unlock_gates_a_submit_behind_the_device_check() -> None:
+    card = lt.render(
+        lt.Button("Pay", on_tap=lt.Unlock("pay", send=("amount",), reason="Confirm the payment"))
+    )
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "unlock:pay",
+        "url": (
+            "latawiec://unlock?action=pay&reason=Confirm%20the%20payment"
+            "&amount=@{encodeUri(amount)}"
+        ),
+    }
+
+
+def test_unlock_refuses_input_the_shells_cannot_carry() -> None:
+    # Both platforms reject an empty prompt title, iOS by throwing.
+    with pytest.raises(ValueError, match="reason"):
+        lt.Unlock("pay", reason="")
+
+    # The URL already carries these names, so a variable of the same name
+    # would be read as the prompt text and never reach the handler.
+    with pytest.raises(ValueError, match="reason"):
+        lt.Unlock("transfer", send=("reason",))
+    with pytest.raises(ValueError, match="action"):
+        lt.Submit("transfer", send=("action",))
+
+
 def test_a_tap_can_run_several_actions_in_order() -> None:
     card = lt.render(lt.Button("Send", on_tap=(lt.Haptic(), lt.Navigate("done"))))
 
