@@ -406,26 +406,39 @@ class LoadMore(Component):
         )
 
 
+_PICKER_LABELS = {"gallery": "Choose a photo", "camera": "Take a photo"}
+
+
 @dataclass(frozen=True)
 class ImagePicker(Component):
-    """A photo from the gallery, uploaded the moment it is picked.
+    """A photo, uploaded the moment it is taken or picked.
 
-    Tapping opens the system photo picker; the shell uploads the choice to
-    the app's @app.upload handler and sets `variable` to whatever it
-    returned — typically a URL, which this component then previews and a
-    Submit(send=(variable,)) forwards like any other variable.
+    Tapping opens the system photo picker, or the camera with
+    source="camera"; the shell uploads the result to the app's @app.upload
+    handler and sets `variable` to whatever it returned — typically a URL,
+    which this component then previews and a Submit(send=(variable,))
+    forwards like any other variable.
+
+    The camera needs no permission of its own on Android (the system camera
+    app takes the photo). A device with no camera, or one whose owner turned
+    camera access off, says so instead of silently falling back to the
+    gallery.
     """
 
     variable: str
-    label: str = "Choose a photo"
+    label: str | None = None
+    """Defaults to what the source offers: picking a photo, or taking one."""
     height: int = 160
     style: Style | None = None
+    # Last on purpose: inserting it earlier would reinterpret the positional
+    # arguments of apps written against an earlier release.
+    source: Literal["gallery", "camera"] = "gallery"
 
     def _build(self) -> dv.Div:
         return dv.DivContainer(
             items=[
                 dv.DivText(
-                    text=self.label,
+                    text=_PICKER_LABELS[self.source] if self.label is None else self.label,
                     visibility=Expr(f"@{{{self.variable} == '' ? 'visible' : 'gone'}}"),
                     text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
                 ),
@@ -443,8 +456,11 @@ class ImagePicker(Component):
             border=dv.DivBorder(corner_radius=12),
             actions=[
                 dv.DivAction(
-                    log_id="pick",
-                    url=f"latawiec://pick?variable={quote(self.variable, safe='')}",
+                    log_id=f"pick:{self.source}",
+                    url=(
+                        f"latawiec://pick?variable={quote(self.variable, safe='')}"
+                        f"&source={self.source}"
+                    ),
                 )
             ],
         )

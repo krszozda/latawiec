@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The camera app writes the shot here, and the shell hands it the URI
+     this provider mints for it. -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+</paths>

@@ -24,6 +24,10 @@ on:
         description: "Why the app wants your location (shown in the system prompt)"
         required: false
         default: "Shows you content for where you are."
+      cameraReason:
+        description: "Why the app wants the camera (shown in the system prompt)"
+        required: false
+        default: "Lets you add a photo you take yourself."
       versionName:
         description: "Marketing version, e.g. 1.0"
         required: true
@@ -73,6 +77,7 @@ jobs:
           APP_NAME: ${{ inputs.appName }}
           SERVER_URL: ${{ inputs.serverUrl }}
           LOCATION_REASON: ${{ inputs.locationReason }}
+          CAMERA_REASON: ${{ inputs.cameraReason }}
           VERSION_NAME: ${{ inputs.versionName }}
           BUILD_NUMBER: ${{ inputs.buildNumber }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -85,6 +90,7 @@ jobs:
             LATAWIEC_SERVER_URL="$SERVER_URL" \
             LATAWIEC_APP_NAME="$APP_NAME" \
             LATAWIEC_LOCATION_REASON="$LOCATION_REASON" \
+            LATAWIEC_CAMERA_REASON="$CAMERA_REASON" \
             PRODUCT_BUNDLE_IDENTIFIER="$APP_ID" \
             MARKETING_VERSION="$VERSION_NAME" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \

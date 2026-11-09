@@ -37,6 +37,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
@@ -54,6 +55,7 @@ import com.yandex.div.json.expressions.ExpressionResolver
 import com.yandex.div2.DivAction
 import com.yandex.div2.DivData
 import com.yandex.div2.DivSightAction
+import java.io.File
 import java.io.IOException
 import java.util.Locale
 import java.util.TimeZone
@@ -80,6 +82,9 @@ private const val PUSH_ANIMATION_MS = 250L
 
 /** How long a RequestLocation waits for a fix before giving up on one. */
 private const val FIX_TIMEOUT_MS = 10_000L
+
+/** How long a camera shot stays in the cache before it is swept. */
+private const val PHOTO_KEEP_MS = 24 * 60 * 60 * 1000L
 
 /** The server's WebSocket close code for a missing or rejected token. */
 private const val NOT_AUTHORIZED = 4401
@@ -131,6 +136,9 @@ class MainActivity : AppCompatActivity() {
     /** Which screen variable (and whose screen) the in-flight pick feeds. */
     private var pendingPickVariable: String? = null
     private var pendingPickScreen: ScreenView? = null
+
+    /** Where the camera app was told to write, and where we read it back. */
+    private var pendingPhotoUri: Uri? = null
     private val pickMedia =
         registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             val variable = pendingPickVariable
@@ -138,6 +146,17 @@ class MainActivity : AppCompatActivity() {
             pendingPickVariable = null
             pendingPickScreen = null
             if (uri != null && variable != null) uploadPicked(uri, variable, screen)
+        }
+
+    private val takePhoto =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+            val variable = pendingPickVariable
+            val screen = pendingPickScreen
+            val uri = pendingPhotoUri
+            pendingPickVariable = null
+            pendingPickScreen = null
+            pendingPhotoUri = null
+            if (taken && variable != null && uri != null) uploadPicked(uri, variable, screen)
         }
 
     /** A RequestLocation waiting on the permission prompt or on a fix. */
@@ -200,6 +219,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (savedInstanceState != null) {
             pendingPickVariable = savedInstanceState.getString("pendingPickVariable")
+            pendingPhotoUri = savedInstanceState.getString("pendingPhotoUri")?.let(Uri::parse)
             // The screen is gone with the old activity; the fix lands on
             // whichever screen is showing when it arrives.
             savedInstanceState.getString("pendingLocationVariable")?.let {
@@ -221,9 +241,12 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putString("pendingDeepLink", pendingDeepLink)
         // A pick's ActivityResult survives process death; its variable must
-        // too, or the redelivered photo is silently dropped. The permission
+        // too, or the redelivered photo has nowhere to land. The screen
+        // stack does not survive, so the value reaches the rebuilt screen
+        // only if that screen declares the same variable. The permission
         // prompt behind a RequestLocation is the same story.
         outState.putString("pendingPickVariable", pendingPickVariable)
+        outState.putString("pendingPhotoUri", pendingPhotoUri?.toString())
         outState.putString("pendingLocationVariable", pendingLocation?.variable)
         outState.putString("pendingLocationAction", pendingLocation?.action)
     }
@@ -732,6 +755,62 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Hands the system camera app a file of ours to write into. A device
+     * with no camera app at all says so rather than looking broken.
+     */
+    private fun shoot() {
+        val target = photoTarget()
+        if (target == null) {
+            pendingPickVariable = null
+            pendingPickScreen = null
+            showError("Could not reach the camera")
+            return
+        }
+        pendingPhotoUri = target
+        try {
+            takePhoto.launch(target)
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "no camera app: $e")
+            pendingPickVariable = null
+            pendingPickScreen = null
+            pendingPhotoUri = null
+            showError("This device has no camera")
+        }
+    }
+
+    /**
+     * The server has the bytes now, so our copy is litter. A gallery pick
+     * belongs to the user, not to us, and is left alone.
+     */
+    private fun discardShot(uri: Uri) {
+        if (uri.authority != "$packageName.files") return
+        val name = uri.lastPathSegment?.substringAfterLast('/') ?: return
+        File(File(cacheDir, "camera"), name).delete()
+    }
+
+    private fun photoTarget(): Uri? {
+        val dir = File(cacheDir, "camera")
+        if (!dir.exists() && !dir.mkdirs()) {
+            Log.w(TAG, "camera cache directory refused")
+            return null
+        }
+        // A shot whose upload never ran (the app died mid-flight) would
+        // otherwise sit in the cache for good.
+        val stale = System.currentTimeMillis() - PHOTO_KEEP_MS
+        dir.listFiles()?.forEach { if (it.lastModified() < stale) it.delete() }
+        return try {
+            FileProvider.getUriForFile(
+                this,
+                "$packageName.files",
+                File(dir, "shot-${System.currentTimeMillis()}.jpg"),
+            )
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "camera target refused: $e")
+            null
+        }
+    }
+
+    /**
      * Ships the picked photo to the server's @app.upload handler and sets
      * the picker's variable to whatever it returned — the preview and any
      * Submit pick it up from there.
@@ -762,11 +841,13 @@ class MainActivity : AppCompatActivity() {
         http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
+                    discardShot(uri)
                     Log.w(TAG, "upload failed: $e")
                     showError("Upload failed — try again")
                 }
 
                 override fun onResponse(call: Call, response: Response) {
+                    discardShot(uri)
                     response.use {
                         if (it.code == 401) {
                             stackHost.post { if (!isDestroyed) onUnauthorized() }
@@ -1193,11 +1274,15 @@ class MainActivity : AppCompatActivity() {
                         // The value belongs to the screen that asked, even
                         // if the user navigates while the upload runs.
                         pendingPickScreen = screens.lastOrNull()
-                        pickMedia.launch(
-                            PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.ImageOnly,
-                            ),
-                        )
+                        if (url.getQueryParameter("source") == "camera") {
+                            shoot()
+                        } else {
+                            pickMedia.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                ),
+                            )
+                        }
                         return true
                     }
 

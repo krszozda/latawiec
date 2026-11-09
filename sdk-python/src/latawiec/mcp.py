@@ -41,10 +41,14 @@ Components:
 - Select(variable, options=("S", Option("Medium", "m")), hint=None, initial="")
   # options: strings, or Option(label, value) when they differ
 - Slider(variable, min=0, max=100, initial=None, color="#2962FF")  # integer variable
-- ImagePicker(variable, label="Choose a photo", height=160)  # tap opens the
-  system gallery; the shell uploads the pick to the app's @app.upload handler
-  and sets `variable` to its return value (typically a URL), which the
-  component previews and a Submit(send=(variable,)) forwards
+- ImagePicker(variable, label=None, height=160, style=None, source="gallery")
+  # tap opens the system gallery, or the camera with source="camera"; the
+  # shell uploads the result to the app's @app.upload handler and sets
+  # `variable` to its return value (typically a URL), which the component
+  # previews and a Submit(send=(variable,)) forwards. The label defaults to
+  # the source ("Choose a photo" / "Take a photo"). source="camera" costs no
+  # Android permission; a device with no camera, or one whose owner turned
+  # camera access off, says so rather than falling back to the gallery
 - Column(*children), Row(*children), Stack(*children)  # Stack overlaps; place
   children with Style align/align_vertical
 - Gallery(*children, horizontal=False, spacing=None)  # scrolling list

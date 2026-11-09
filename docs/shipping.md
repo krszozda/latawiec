@@ -173,14 +173,22 @@ The foreground case matches the background one on both platforms: iOS
 shows the banner, the Android shell re-posts the message as a local
 notification (swap its placeholder icon together with the launcher one).
 
-## Location
+## Location and the camera
 
-`RequestLocation` needs no build flag, but iOS shows your own sentence in
-the system prompt and App Store review rejects a vague one. Pass it with
-the `locationReason` input of `ship-ios`, or
-`LATAWIEC_LOCATION_REASON="Finds shops near you."` on the `xcodebuild`
-command line. An app that never asks for a location can delete the two
-`ACCESS_*_LOCATION` lines from `app/src/main/AndroidManifest.xml`.
+Neither needs a build flag, but iOS shows your own sentence in the system
+prompt and App Store review rejects a vague one. Pass them with the
+`locationReason` and `cameraReason` inputs of `ship-ios`, or as
+`LATAWIEC_LOCATION_REASON="Finds shops near you."` and
+`LATAWIEC_CAMERA_REASON="Adds a photo to your report."` on the
+`xcodebuild` command line. An app that never asks for a location can
+delete the two `ACCESS_*_LOCATION` lines from
+`app/src/main/AndroidManifest.xml`; the camera needs no Android
+permission at all, since the system camera app takes the shot.
+
+The iOS simulator has no camera (it claims otherwise, then shows a blank
+capture screen), so the shell treats it as camera-less: `source="camera"`
+says so there, and taking a shot needs a real device. The Android
+emulator does have one.
 
 ## What a release pins
 

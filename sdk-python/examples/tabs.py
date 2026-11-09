@@ -94,6 +94,16 @@ def system(ctx: lt.Context) -> lt.Component:
 SPOTS: dict[str, str] = {}
 
 
+@app.screen("shoot")
+def shoot() -> lt.Component:
+    return lt.Column(
+        lt.Text("Snapshot", size=28, weight="bold", style=lt.Style(margin=48)),
+        # No label: the component says "Take a photo" because of the source.
+        lt.ImagePicker("shot", source="camera", style=lt.Style(margin=16)),
+        lt.Text("@{shot}", size=12, color="#757575", style=lt.Style(margin=16)),
+    )
+
+
 @app.screen("where", live=True)
 def where(ctx: lt.Context) -> lt.Component:
     return lt.Column(

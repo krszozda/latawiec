@@ -31,6 +31,18 @@
                 <data android:scheme="${deepLinkScheme}" />
             </intent-filter>
         </activity>
+        <!-- Lets the system camera app write its shot into our cache, which
+             is the whole of the camera support: no CAMERA permission, and
+             no camera library in the APK. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="latawiec" />
