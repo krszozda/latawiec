@@ -29,6 +29,9 @@ and `shell-ios/`.
   running emulator) need five servers from `sdk-python/`: `examples.hello` on
   port 8000, `examples.tabs` on port 8001, `examples.auth` on port 8002,
   `examples.prod` on port 8004, and `examples.live` on port 8005.
+  The location test also needs the simulator put somewhere, which XCUITest
+  cannot do itself: `xcrun simctl location booted set 52.2297,21.0122` and
+  `xcrun simctl privacy booted grant location io.github.krszozda.latawiec.shell`.
   Run `xcodebuild test` without CODE_SIGNING_ALLOWED=NO: an unsigned build
   cannot write the Keychain (-34018) and the auth test fails on it.
 - DivKit APIs are verified against the published artifacts (javap on the Android AAR

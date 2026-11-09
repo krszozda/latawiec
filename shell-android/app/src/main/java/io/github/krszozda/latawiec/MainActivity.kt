@@ -10,6 +10,9 @@ import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -52,6 +55,7 @@ import com.yandex.div2.DivAction
 import com.yandex.div2.DivData
 import com.yandex.div2.DivSightAction
 import java.io.IOException
+import java.util.Locale
 import java.util.TimeZone
 import okhttp3.Call
 import okhttp3.Callback
@@ -73,6 +77,9 @@ private const val TAG = "Latawiec"
 private const val RECONNECT_DELAY_MS = 1_000L
 private const val RECONNECT_DELAY_MAX_MS = 30_000L
 private const val PUSH_ANIMATION_MS = 250L
+
+/** How long a RequestLocation waits for a fix before giving up on one. */
+private const val FIX_TIMEOUT_MS = 10_000L
 
 /** The server's WebSocket close code for a missing or rejected token. */
 private const val NOT_AUTHORIZED = 4401
@@ -133,6 +140,22 @@ class MainActivity : AppCompatActivity() {
             if (uri != null && variable != null) uploadPicked(uri, variable, screen)
         }
 
+    /** A RequestLocation waiting on the permission prompt or on a fix. */
+    private data class LocationAsk(
+        val variable: String,
+        val action: String?,
+        val screen: ScreenView?,
+    )
+
+    private var pendingLocation: LocationAsk? = null
+    private val fixListeners = mutableListOf<LocationListener>()
+    private var fixTimeout: Runnable? = null
+    private val askLocation =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            // Coarse alone is a yes: a city-level fix still answers "where am I".
+            if (grants.values.any { it }) requestFix() else deliverLocation("")
+        }
+
     /**
      * One view per screen, stacked like iOS's navigation controllers: popping
      * uncovers the previous view with its DivKit variables intact, instead of
@@ -177,6 +200,15 @@ class MainActivity : AppCompatActivity() {
         }
         if (savedInstanceState != null) {
             pendingPickVariable = savedInstanceState.getString("pendingPickVariable")
+            // The screen is gone with the old activity; the fix lands on
+            // whichever screen is showing when it arrives.
+            savedInstanceState.getString("pendingLocationVariable")?.let {
+                pendingLocation = LocationAsk(
+                    it,
+                    savedInstanceState.getString("pendingLocationAction"),
+                    null,
+                )
+            }
         }
         if (serverUrl.isEmpty()) {
             askForServer()
@@ -189,8 +221,11 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putString("pendingDeepLink", pendingDeepLink)
         // A pick's ActivityResult survives process death; its variable must
-        // too, or the redelivered photo is silently dropped.
+        // too, or the redelivered photo is silently dropped. The permission
+        // prompt behind a RequestLocation is the same story.
         outState.putString("pendingPickVariable", pendingPickVariable)
+        outState.putString("pendingLocationVariable", pendingLocation?.variable)
+        outState.putString("pendingLocationAction", pendingLocation?.action)
     }
 
     /** The generic APK ships without a server; the first start asks for one. */
@@ -294,6 +329,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        cancelFix()
         screens.forEach(ScreenView::stop)
         super.onDestroy()
     }
@@ -623,6 +659,76 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Every enabled provider is asked at once and the first fix wins: GPS
+     * gives the best one but indoors it never arrives, where the network
+     * provider answers in a second.
+     */
+    private fun requestFix() {
+        // The permission prompt can outlive this activity (a rotation, or
+        // process death); without an ask to answer, subscribing would leave
+        // every provider listening for the rest of the session.
+        val ask = pendingLocation ?: return
+        val manager = getSystemService(LocationManager::class.java)
+        val providers = manager?.getProviders(true).orEmpty()
+        if (manager == null || providers.isEmpty()) {
+            deliverLocation("")
+            return
+        }
+        for (provider in providers) {
+            val listener = FixListener()
+            fixListeners += listener
+            try {
+                manager.requestLocationUpdates(provider, 0L, 0f, listener, mainLooper)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "location updates from $provider refused: $e")
+            }
+        }
+        val timeout = Runnable { if (pendingLocation === ask) deliverLocation("") }
+        fixTimeout = timeout
+        stackHost.postDelayed(timeout, FIX_TIMEOUT_MS)
+    }
+
+    /** Leaving the app drops the ask: no listeners, no late empty submit. */
+    private fun cancelFix() {
+        pendingLocation = null
+        fixTimeout?.let { stackHost.removeCallbacks(it) }
+        fixTimeout = null
+        val manager = getSystemService(LocationManager::class.java)
+        for (listener in fixListeners) manager?.removeUpdates(listener)
+        fixListeners.clear()
+    }
+
+    /** First answer (or the timeout) wins; the rest find nothing pending. */
+    private fun deliverLocation(value: String) {
+        val ask = pendingLocation ?: return
+        cancelFix()
+        if (isDestroyed) return
+        // A restored ask lost its screen with the old activity, so the fix
+        // lands on whichever screen is showing when it arrives.
+        (ask.screen ?: screens.lastOrNull())?.setVariable(ask.variable, value)
+        if (ask.action != null) submit(ask.action, JSONObject().put(ask.variable, value))
+    }
+
+    private inner class FixListener : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            // Locale.US: a comma as the decimal separator would cut the pair
+            // into three numbers on a Polish phone.
+            deliverLocation(
+                String.format(Locale.US, "%.6f,%.6f", location.latitude, location.longitude),
+            )
+        }
+
+        // Default methods on modern SDKs, abstract back on API 26-29, where
+        // leaving them out crashes the moment the system calls one.
+        @Deprecated("Deprecated in Java")
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+
+        override fun onProviderEnabled(provider: String) = Unit
+
+        override fun onProviderDisabled(provider: String) = Unit
     }
 
     /**
@@ -977,6 +1083,10 @@ class MainActivity : AppCompatActivity() {
         for (key in url.queryParameterNames) {
             if (key != "action") values.put(key, url.getQueryParameter(key))
         }
+        submit(action, values)
+    }
+
+    private fun submit(action: String, values: JSONObject) {
         val request = authorized(
             Request.Builder()
                 .url("$serverUrl/actions/${Uri.encode(action)}")
@@ -1055,6 +1165,25 @@ class MainActivity : AppCompatActivity() {
                     "submit" -> {
                         val name = url.getQueryParameter("action") ?: return false
                         submit(name, url)
+                        return true
+                    }
+
+                    "locate" -> {
+                        val variable = url.getQueryParameter("variable") ?: return false
+                        pendingLocation = LocationAsk(
+                            variable,
+                            url.getQueryParameter("action"),
+                            screens.lastOrNull(),
+                        )
+                        val fine = Manifest.permission.ACCESS_FINE_LOCATION
+                        val coarse = Manifest.permission.ACCESS_COARSE_LOCATION
+                        if (checkSelfPermission(fine) == PackageManager.PERMISSION_GRANTED ||
+                            checkSelfPermission(coarse) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            requestFix()
+                        } else {
+                            askLocation.launch(arrayOf(fine, coarse))
+                        }
                         return true
                     }
 

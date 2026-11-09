@@ -118,6 +118,45 @@ def test_sign_out_names_the_landing_screen_only_when_given() -> None:
     assert action == {"log_id": "signout", "url": "latawiec://signout?screen=bye%20bye"}
 
 
+def test_request_location_carries_the_variable_and_the_follow_up_action() -> None:
+    card = lt.render(lt.Button("Locate", on_tap=lt.RequestLocation("spot")))
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {"log_id": "locate", "url": "latawiec://locate?variable=spot"}
+
+    card = lt.render(lt.Button("Locate", on_tap=lt.RequestLocation("spot", then="near me")))
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "locate",
+        "url": "latawiec://locate?variable=spot&action=near%20me",
+    }
+
+
+def test_request_location_declares_the_variable_it_writes_into() -> None:
+    # No component carries this variable, yet a sibling Text must be able to
+    # read it the moment the fix lands.
+    card = lt.render(
+        lt.Column(
+            lt.Text("@{spot}"),
+            lt.Button("Locate", on_tap=lt.RequestLocation("spot")),
+        )
+    )
+
+    assert card["card"]["variables"] == [{"type": "string", "name": "spot", "value": ""}]
+
+
+def test_request_location_writes_into_an_existing_control_variable() -> None:
+    # Dropping the fix into a search box the user can still edit: the input's
+    # declaration wins, so its hint and initial value survive.
+    card = lt.render(
+        lt.Column(
+            lt.TextInput("spot", initial="Warsaw"),
+            lt.Button("Use my location", on_tap=lt.RequestLocation("spot")),
+        )
+    )
+
+    assert card["card"]["variables"] == [{"type": "string", "name": "spot", "value": "Warsaw"}]
+
+
 def test_a_tap_can_run_several_actions_in_order() -> None:
     card = lt.render(lt.Button("Send", on_tap=(lt.Haptic(), lt.Navigate("done"))))
 

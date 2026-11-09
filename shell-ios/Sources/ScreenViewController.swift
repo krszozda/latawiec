@@ -1,3 +1,4 @@
+import CoreLocation
 import DivKit
 import PhotosUI
 import UIKit
@@ -8,6 +9,9 @@ private let log = Logger(subsystem: "io.github.krszozda.latawiec", category: "sh
 
 /// The server's WebSocket close code for a missing or rejected token.
 private let notAuthorized = 4401
+
+/// How long a RequestLocation waits for a fix before giving up on one.
+private let fixTimeout: TimeInterval = 10
 
 /// One Latawiec screen: a DivView fed over a WebSocket.
 ///
@@ -35,6 +39,28 @@ final class ScreenViewController: UIViewController {
 
     /// Which screen variable the in-flight photo pick belongs to.
     private var pendingPickVariable: String?
+
+    /// A RequestLocation waiting on the permission prompt or on a fix.
+    private struct LocationAsk {
+        let variable: String
+        let action: String?
+    }
+
+    private var pendingLocation: LocationAsk?
+
+    /// Variables the shell wrote itself — a picked photo, a location fix.
+    /// A re-render resets the card's data and would drop them, so they are
+    /// kept here and written back after every render, which is also how the
+    /// Android shell behaves (its setData keeps the variables alive).
+    private var ownVariables: [String: String] = [:]
+
+    /// Bumped per ask, so a late timeout cannot answer a newer one.
+    private var locationAsks = 0
+    private lazy var locations: CLLocationManager = {
+        let manager = CLLocationManager()
+        manager.delegate = self
+        return manager
+    }()
 
     private lazy var refresher = makeRefresher()
     private var wantsRefresher = false
@@ -205,12 +231,28 @@ final class ScreenViewController: UIViewController {
         }
     }
 
+    private func setOwnVariable(_ name: String, to value: String) {
+        ownVariables[name] = value
+        components.variablesStorage.update(
+            cardId: DivCardID(rawValue: screen),
+            name: DivVariableName(rawValue: name),
+            value: value
+        )
+    }
+
     private func show(data: Data) {
         Task { @MainActor in
             await divView.setSource(
                 DivViewSource(kind: .data(data), cardId: DivCardID(rawValue: screen)),
                 shouldResetPreviousCardData: true
             )
+            for (name, value) in ownVariables {
+                components.variablesStorage.update(
+                    cardId: DivCardID(rawValue: screen),
+                    name: DivVariableName(rawValue: name),
+                    value: value
+                )
+            }
             spinner.stopAnimating()
             settleRefresher()
             attachRefresherIfWanted()
@@ -336,6 +378,13 @@ final class ScreenViewController: UIViewController {
                 picker.delegate = self
                 present(picker, animated: true)
             }
+        case "locate":
+            let values = queryValues(of: url)
+            if let variable = values["variable"] {
+                pendingLocation = LocationAsk(variable: variable, action: values["action"])
+                locationAsks += 1
+                requestFix()
+            }
         case "signout":
             Auth.signOut(to: queryValues(of: url)["screen"])
         case "share":
@@ -373,6 +422,35 @@ final class ScreenViewController: UIViewController {
               (navigation.topViewController as? ScreenViewController)?.screen != name
         else { return }
         navigation.pushViewController(ScreenViewController(screen: name), animated: true)
+    }
+
+    private func requestFix() {
+        switch locations.authorizationStatus {
+        case .notDetermined:
+            // The answer arrives on the delegate, which comes back here.
+            locations.requestWhenInUseAuthorization()
+        case .restricted, .denied:
+            deliverLocation("")
+        default:
+            locations.requestLocation()
+            // requestLocation() does report a failure of its own, but not on
+            // a simulator that was never given a location, so time it out.
+            let ask = locationAsks
+            DispatchQueue.main.asyncAfter(deadline: .now() + fixTimeout) { [weak self] in
+                guard let self, self.locationAsks == ask else { return }
+                self.deliverLocation("")
+            }
+        }
+    }
+
+    /// First answer (or the timeout) wins; the rest find nothing pending.
+    private func deliverLocation(_ value: String) {
+        guard let ask = pendingLocation else { return }
+        pendingLocation = nil
+        setOwnVariable(ask.variable, to: value)
+        if let action = ask.action {
+            submit(action: action, values: [ask.variable: value])
+        }
     }
 
     /// POSTs the submitted values to the server's action handler and follows
@@ -482,12 +560,39 @@ extension ScreenViewController: PHPickerViewControllerDelegate {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.components.variablesStorage.update(
-                    cardId: DivCardID(rawValue: self.screen),
-                    name: DivVariableName(rawValue: variable),
-                    value: value
-                )
+                self.setOwnVariable(variable, to: value)
             }
         }.resume()
+    }
+}
+
+extension ScreenViewController: CLLocationManagerDelegate {
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard pendingLocation != nil else { return }
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            return
+        case .restricted, .denied:
+            deliverLocation("")
+        default:
+            requestFix()
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations fixes: [CLLocation]) {
+        guard let fix = fixes.last else { return }
+        // String(format:) is unlocalized, so the pair keeps its decimal dots.
+        deliverLocation(
+            String(
+                format: "%.6f,%.6f",
+                fix.coordinate.latitude,
+                fix.coordinate.longitude
+            )
+        )
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        log.warning("location failed: \(String(describing: error))")
+        deliverLocation("")
     }
 }

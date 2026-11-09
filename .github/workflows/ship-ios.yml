@@ -20,6 +20,10 @@ on:
       serverUrl:
         description: "Production server URL (https)"
         required: true
+      locationReason:
+        description: "Why the app wants your location (shown in the system prompt)"
+        required: false
+        default: "Shows you content for where you are."
       versionName:
         description: "Marketing version, e.g. 1.0"
         required: true
@@ -68,6 +72,7 @@ jobs:
           APP_ID: ${{ inputs.appId }}
           APP_NAME: ${{ inputs.appName }}
           SERVER_URL: ${{ inputs.serverUrl }}
+          LOCATION_REASON: ${{ inputs.locationReason }}
           VERSION_NAME: ${{ inputs.versionName }}
           BUILD_NUMBER: ${{ inputs.buildNumber }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -79,6 +84,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             LATAWIEC_SERVER_URL="$SERVER_URL" \
             LATAWIEC_APP_NAME="$APP_NAME" \
+            LATAWIEC_LOCATION_REASON="$LOCATION_REASON" \
             PRODUCT_BUNDLE_IDENTIFIER="$APP_ID" \
             MARKETING_VERSION="$VERSION_NAME" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \

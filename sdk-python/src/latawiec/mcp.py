@@ -33,6 +33,7 @@ Components:
   #         lands on `screen`, the manifest's login screen, or "home"
   #       | Share(text) | OpenUrl(url) | CopyToClipboard(text)
   #       | Haptic(feedback="light"|"medium"|"heavy"|"success"|"error")
+  #       | RequestLocation(variable, then=None)  # see below
   #       | a tuple of the above, run in order: (Haptic("success"), Submit(...))
   # OpenUrl leaves the app; shells follow http(s), mailto, tel, and sms only
 - TextInput(variable, hint=None, initial="", password=False)  # declares its variable
@@ -100,6 +101,13 @@ App and server (Latawiec subclasses FastAPI):
   as dict[str, str] and may return Navigate to send the shell onward.
 - @app.screen(..., refreshable=True) adds the pull-to-refresh gesture in
   production (on iOS the screen's root must scroll, e.g. a Gallery).
+- RequestLocation(variable, then=None) asks the device where it is and puts
+  "lat,lon" in `variable`, which it declares itself. The first tap raises the
+  system permission prompt, so put it on a control the user pressed on
+  purpose. A denial, or no fix within ten seconds, leaves the variable empty
+  — render the fallback the screen wants. `then` names an action to submit
+  once the answer is in, carrying the variable; pairing RequestLocation with
+  a Submit in a tuple instead would fire it before the fix arrives.
 - LoadMore(action, label="Loading more…") is the infinite-scroll sentinel:
   last in a Gallery, it submits `action` when scrolled into view; the handler
   extends the data and calls app.refresh(), so pair it with live=True, and
