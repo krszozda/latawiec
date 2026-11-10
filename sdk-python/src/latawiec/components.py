@@ -429,6 +429,10 @@ class LoadMore(Component):
     sentinel left in an exhausted list re-fires on every refresh — and
     make the handler tolerate a duplicate fire (scrolling the sentinel
     out and back in before the refresh lands sends the action again).
+
+    It fires on becoming visible, so each page must be long enough to push
+    it back off the screen: a page that still fits on a tablet after
+    loading leaves the sentinel in view, and nothing more arrives.
     """
 
     action: str

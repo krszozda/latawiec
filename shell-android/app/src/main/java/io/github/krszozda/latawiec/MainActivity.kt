@@ -138,6 +138,9 @@ class MainActivity : AppCompatActivity() {
 
     /** A deep link that arrived before the manifest; opened once it applies. */
     private var pendingDeepLink: String? = null
+
+    /** The screen stack from before the process died, restored on boot. */
+    private var pendingStack: List<String>? = null
     private var manifestApplied = false
 
     /** Fingerprint of the applied manifest; a mismatch means refetch. */
@@ -249,6 +252,7 @@ class MainActivity : AppCompatActivity() {
             savedInstanceState.getString("pendingDeepLink")
         }
         if (savedInstanceState != null) {
+            pendingStack = savedInstanceState.getStringArrayList("stack")
             pendingPickVariable = savedInstanceState.getString("pendingPickVariable")
             pendingPhotoUri = savedInstanceState.getString("pendingPhotoUri")?.let(Uri::parse)
             savedInstanceState.getString("pendingUnlockAction")?.let { action ->
@@ -275,11 +279,16 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString("pendingDeepLink", pendingDeepLink)
+        // A rotation keeps the views themselves; this is for the harder
+        // case, where Android reclaimed the process while the app was in
+        // the background and the user comes back expecting their place.
+        outState.putStringArrayList("stack", ArrayList(screens.map { it.name }))
         // A pick's ActivityResult survives process death; its variable must
-        // too, or the redelivered photo has nowhere to land. The screen
-        // stack does not survive, so the value reaches the rebuilt screen
-        // only if that screen declares the same variable. The permission
-        // prompt behind a RequestLocation is the same story.
+        // too, or the redelivered photo has nowhere to land. The stack is
+        // restored by name only — a screen's DivKit variables are not —
+        // so the value lands only if the rebuilt screen declares the same
+        // one. The permission prompt behind a RequestLocation is the same
+        // story.
         outState.putString("pendingPickVariable", pendingPickVariable)
         outState.putString("pendingPhotoUri", pendingPhotoUri?.toString())
         pendingUnlock?.let { (action, values) ->
@@ -1137,6 +1146,30 @@ class MainActivity : AppCompatActivity() {
     private fun boot(manifest: JSONObject?) {
         applyManifest(manifest)
         manifestApplied = true
+        // Where the user was before the activity was rebuilt. A deep link
+        // that arrived since is a newer intent, so it wins.
+        val restored = pendingStack
+        pendingStack = null
+        if (pendingDeepLink == null && !restored.isNullOrEmpty()) {
+            // showRoot, not push: applyManifest has already put a root on
+            // screen, and pushing onto it would stack a second copy that
+            // the user has to press back through.
+            showRoot(restored.first())
+            restored.drop(1).forEach { push(it, animated = false) }
+            // The bar's selection is not part of the saved state, so
+            // without this it points at the first tab while the user is
+            // looking at another one — and re-tapping it does nothing.
+            val tab = tabRoots.indexOf(restored.first())
+            if (tab >= 0) {
+                bottomBar.setOnItemSelectedListener(null)
+                bottomBar.selectedItemId = tab
+                bottomBar.setOnItemSelectedListener { item ->
+                    showRoot(tabRoots[item.itemId])
+                    true
+                }
+            }
+            return
+        }
         pendingDeepLink?.let {
             pendingDeepLink = null
             openDeepLink(it)

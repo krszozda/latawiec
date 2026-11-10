@@ -18,9 +18,14 @@
         android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
         android:usesCleartextTraffic="${cleartext}">
         <!-- singleTask: a deep link to a running app reuses the activity via
-             onNewIntent instead of stacking a second shell. -->
+             onNewIntent instead of stacking a second shell.
+             configChanges: the whole UI comes from the server and DivKit
+             remeasures itself, so a rotation has nothing to reload — while
+             being recreated would drop the screen stack and everything the
+             user had typed into it. -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden"
             android:exported="true"
             android:launchMode="singleTask">
             <intent-filter>

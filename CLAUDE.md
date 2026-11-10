@@ -29,6 +29,12 @@ and `shell-ios/`.
   running emulator) need five servers from `sdk-python/`: `examples.hello` on
   port 8000, `examples.tabs` on port 8001, `examples.auth` on port 8002,
   `examples.prod` on port 8004, and `examples.live` on port 8005.
+  The iPad runs the same suites (`-destination` an iPad simulator). Two
+  of them fail there for reasons outside the shell: SmokeTests and
+  AuthTests type with `app.keys[...]`, and the iPad simulator keeps a
+  hardware keyboard attached so the on-screen one never appears. A third,
+  PullAndPageUITests' LoadMore, needs a page taller than the screen —
+  see the LoadMore docstring.
   The location test also needs the simulator put somewhere, which XCUITest
   cannot do itself: `xcrun simctl location booted set 52.2297,21.0122` and
   `xcrun simctl privacy booted grant location io.github.krszozda.latawiec.shell`.

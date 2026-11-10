@@ -173,6 +173,17 @@ The foreground case matches the background one on both platforms: iOS
 shows the banner, the Android shell re-posts the message as a local
 notification (swap its placeholder icon together with the launcher one).
 
+## Tablets and rotation
+
+Both shells run on tablets and in landscape with nothing to configure:
+the iOS target covers iPhone and iPad, and the Android activity handles
+its own configuration changes, so turning the device keeps the screen
+the user was on along with everything typed into it. The screens
+themselves are yours — DivKit lays out whatever width it is given, so a
+`Row` of cards that suits a phone will stretch on an iPad unless the
+screen builder says otherwise (`ctx` carries no width today; branch on
+what you do know, or design for both).
+
 ## Video beyond the platform player
 
 The default shell plays video through Android's own `MediaPlayer` and
