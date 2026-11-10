@@ -1,0 +1,30 @@
+{
+  "identifier" : "A1B2C3D4-0000-0000-0000-000000000001",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "A1B2C3D4-0000-0000-0000-000000000010",
+      "localizations" : [
+        {
+          "description" : "A kite for the test suite to buy.",
+          "displayName" : "Test kite",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "kite.one",
+      "referenceName" : "Test kite",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

@@ -127,6 +127,49 @@ def lock_vault(values: dict[str, str], ctx: lt.Context) -> None:
     app.refresh("vault")
 
 
+BOUGHT: dict[str, str] = {}
+
+
+@app.screen("shop_kite", live=True)
+def shop_kite(ctx: lt.Context) -> lt.Component:
+    return lt.Column(
+        lt.Text("Kite shop", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Button(
+            "Buy a kite",
+            on_tap=lt.Purchase("kite.one", "grant_kite", consumable=True),
+            style=lt.Style(margin=16),
+        ),
+        lt.Button(
+            "Forget it",
+            on_tap=lt.Submit("forget_kite"),
+            color="#607D8B",
+            style=lt.Style(margin=lt.Edges(left=16, right=16)),
+        ),
+        lt.Text(
+            BOUGHT.get(ctx.platform, "Nothing bought"),
+            style=lt.Style(margin=lt.Edges(left=16, right=16)),
+        ),
+    )
+
+
+@app.action("grant_kite")
+def grant_kite(values: dict[str, str], ctx: lt.Context) -> None:
+    # A real handler verifies this with Apple or Google, reads the product
+    # out of the verified receipt, and refuses a transaction id it has
+    # already granted. The fixture deliberately grants nothing — it only
+    # reports that a receipt arrived, so the tests can see it did.
+    receipt = values.get("receipt", "")
+    BOUGHT[ctx.platform] = f"Receipt of {len(receipt)} chars arrived"
+    app.refresh("shop_kite")
+
+
+@app.action("forget_kite")
+def forget_kite(values: dict[str, str], ctx: lt.Context) -> None:
+    # The UI tests tap this to start from nothing.
+    BOUGHT.pop(ctx.platform, None)
+    app.refresh("shop_kite")
+
+
 @app.screen("clip")
 def clip(ctx: lt.Context) -> lt.Component:
     # The emulator reaches the host by a different name than the simulator.

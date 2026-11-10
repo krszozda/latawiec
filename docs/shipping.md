@@ -184,6 +184,32 @@ themselves are yours — DivKit lays out whatever width it is given, so a
 screen builder says otherwise (`ctx` carries no width today; branch on
 what you do know, or design for both).
 
+## In-app purchases
+
+`Purchase("pro.month", "grant")` runs the platform's own buy flow and
+submits your action with the store's receipt. **Verify that receipt with
+Apple or Google in the handler before granting anything** — the shell
+reports what the store told it, and a patched client can report whatever
+it likes.
+
+iOS needs no flag; StoreKit is part of the system. Android's billing
+library costs about 81 KiB, most of what the budget has left, so an app
+that sells nothing should not carry it:
+
+```
+./gradlew :app:assembleRelease -PwithBilling
+```
+
+That build measures 2,984,464 B against the default 2,901,528 B — still
+inside the 3 MB budget. A default build says "This app was not built to
+take payments" rather than leaving a silent button.
+
+What remains is yours either way: a product with a matching id in App
+Store Connect and in Play Console, and a server that checks the receipt.
+To exercise a purchase on iOS without App Store Connect, point the
+scheme's StoreKit configuration at `shell-ios/Latawiec.storekit`; the
+shell's own tests do it with `SKTestSession`.
+
 ## Video beyond the platform player
 
 The default shell plays video through Android's own `MediaPlayer` and

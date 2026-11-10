@@ -1,6 +1,7 @@
 package io.github.krszozda.latawiec
 
 import android.Manifest
+import android.app.Activity
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -160,6 +161,8 @@ class MainActivity : AppCompatActivity() {
 
     /** The submit waiting behind the device's own unlock screen. */
     private var pendingUnlock: Pair<String, JSONObject>? = null
+    private var store: StoreFront? = null
+    private var purchaseAction: String? = null
     private var unlockSignal: CancellationSignal? = null
     private val confirmCredential =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -224,9 +227,9 @@ class MainActivity : AppCompatActivity() {
         div2Context = Div2Context(this, configuration)
         bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
         stackHost = FrameLayout(this).apply {
-            // So the video test can tell a -PwithVideo build from a
-            // default one, instead of passing on the fallback either way.
-            contentDescription = "player:$videoPlayer"
+            // So the video and purchase tests can tell which build this
+            // is, instead of passing on whichever fallback they meet.
+            contentDescription = "player:$videoPlayer store:${if (billingBuilt()) "play" else "none"}"
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -400,6 +403,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // Built on the first purchase, so a shell that never sold anything
+        // has nothing to close.
+        store?.close()
         unlockSignal?.cancel()
         cancelFix()
         screens.forEach {
@@ -738,6 +744,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Cheap enough for onCreate: it does not build a billing client. */
+    private fun billingBuilt(): Boolean =
+        runCatching { Class.forName("io.github.krszozda.latawiec.PlayStore") }.isSuccess
+
+    /** Present only in a -PwithBilling build; see [StoreFront]. */
+    private fun storeFront(): StoreFront? = try {
+        Class.forName("io.github.krszozda.latawiec.PlayStore")
+            .getDeclaredConstructor(Activity::class.java)
+            .newInstance(this) as StoreFront
+    } catch (e: ReflectiveOperationException) {
+        null
+    } catch (e: LinkageError) {
+        Log.w(TAG, "billing is present but unusable: $e")
+        null
+    }
+
     /**
      * A -PwithVideo build carries ExoPlayer; a default one does not, and
      * referring to the class directly would not compile there. Reflection
@@ -756,6 +778,45 @@ class MainActivity : AppCompatActivity() {
         // build, which would otherwise crash instead of falling back.
         Log.w(TAG, "Media3 is present but unusable: $e")
         SystemPlayerFactory()
+    }
+
+    /**
+     * Play's flow in front of a submit: the action carries the purchase
+     * token, and the server decides what it is worth.
+     */
+    private fun buy(product: String, action: String, consumable: Boolean) {
+        val store = store ?: storeFront()?.also { store = it }
+        if (store == null) {
+            showError(STORE_NOT_BUILT)
+            return
+        }
+        // Everything the store reports lands on the handler of the tap that
+        // started it, including a purchase recovered from an earlier run.
+        if (purchaseAction == null) {
+            store.start { outcome -> deliverPurchase(outcome, consumable) }
+        }
+        purchaseAction = action
+        store.buy(product)
+    }
+
+    private fun deliverPurchase(outcome: PurchaseOutcome, consumable: Boolean) {
+        if (isDestroyed) return
+        val action = purchaseAction ?: return
+        when (outcome) {
+            is PurchaseOutcome.Bought -> submit(
+                action,
+                JSONObject()
+                    .put("receipt", outcome.receipt)
+                    .put("signature", outcome.signature),
+            ) { landed ->
+                // Settle only once the server has granted: an unsettled
+                // purchase is refunded after three days, but a settled one
+                // the server never heard about is gone for good.
+                if (landed) store?.settle(outcome.token, consumable)
+            }
+            PurchaseOutcome.NothingToReport -> Unit
+            is PurchaseOutcome.Failed -> showError(outcome.message)
+        }
     }
 
     /**
@@ -1343,7 +1404,7 @@ class MainActivity : AppCompatActivity() {
         submit(action, values)
     }
 
-    private fun submit(action: String, values: JSONObject) {
+    private fun submit(action: String, values: JSONObject, landed: ((Boolean) -> Unit)? = null) {
         val request = authorized(
             Request.Builder()
                 .url("$serverUrl/actions/${Uri.encode(action)}")
@@ -1352,12 +1413,14 @@ class MainActivity : AppCompatActivity() {
         http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
+                    landed?.let { stackHost.post { it(false) } }
                     Log.w(TAG, "action $action failed: $e")
                     showError("No connection — try again")
                 }
 
                 override fun onResponse(call: Call, response: Response) {
                     response.use {
+                        landed?.let { report -> stackHost.post { report(it.isSuccessful) } }
                         if (it.code == 401) {
                             stackHost.post { if (!isDestroyed) onUnauthorized() }
                             return
@@ -1422,6 +1485,13 @@ class MainActivity : AppCompatActivity() {
                     "submit" -> {
                         val name = url.getQueryParameter("action") ?: return false
                         submit(name, url)
+                        return true
+                    }
+
+                    "buy" -> {
+                        val product = url.getQueryParameter("product") ?: return false
+                        val action = url.getQueryParameter("action") ?: return false
+                        buy(product, action, url.getQueryParameter("consumable") == "1")
                         return true
                     }
 

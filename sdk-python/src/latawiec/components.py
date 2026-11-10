@@ -346,6 +346,50 @@ class RequestLocation:
 
 
 @dataclass(frozen=True)
+class Purchase:
+    """Tap action: buy through the store, then submit `action` with the receipt.
+
+    The shell runs the platform's own flow — StoreKit, Google Play Billing
+    — and submits `action` with the receipt under "receipt", plus
+    "signature" on Android. Nothing else: the product id is deliberately
+    absent, because in the request it would be the client's word.
+
+    Your handler has to do three things before granting anything:
+
+    1. verify the receipt with Apple or Google;
+    2. read the product id out of the verified receipt, never out of the
+       request;
+    3. remember the transaction id (Apple) or order id (Google) and refuse
+       one it has already granted, since the same receipt can be POSTed
+       again.
+
+    The shell is a buy button, not proof of payment. Until the handler
+    answers 200 the purchase stays unsettled on purpose, so a lost
+    connection means the store redelivers it rather than the customer
+    paying for nothing; set `consumable` for something that can be bought
+    again, like a pack of coins, and the shell consumes it once the handler
+    grants.
+
+    A cancelled purchase submits nothing. A product the store does not know
+    says so, as does a store it cannot reach.
+    """
+
+    product: str
+    action: str
+    consumable: bool = False
+
+    def to_div_action(self) -> dv.DivAction:
+        return dv.DivAction(
+            log_id=f"buy:{self.product}",
+            url=(
+                f"latawiec://buy?product={quote(self.product, safe='')}"
+                f"&action={quote(self.action, safe='')}"
+                f"{'&consumable=1' if self.consumable else ''}"
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class Share:
     """Tap action: open the system share sheet with the text."""
 
@@ -416,6 +460,7 @@ Action = (
     | SignOut
     | RequestLocation
     | Unlock
+    | Purchase
 )
 
 

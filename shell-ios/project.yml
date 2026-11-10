@@ -69,7 +69,12 @@ targets:
   LatawiecShellTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [Tests]
+    sources:
+      - Tests
+      # SKTestSession reads it out of the test bundle, which is how a
+      # purchase can be tested without App Store Connect.
+      - path: Latawiec.storekit
+        buildPhase: resources
     dependencies:
       - target: LatawiecShell
     settings:
