@@ -433,6 +433,14 @@ final class ScreenViewController: UIViewController {
                 let sheet = UIActivityViewController(
                     activityItems: [text], applicationActivities: nil
                 )
+                // On an iPad this is a popover, and UIKit refuses to show
+                // one with nothing to point at: the tap would be swallowed
+                // and, with the guard above, every later tap with it.
+                sheet.popoverPresentationController?.sourceView = view
+                sheet.popoverPresentationController?.sourceRect = CGRect(
+                    x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0
+                )
+                sheet.popoverPresentationController?.permittedArrowDirections = []
                 present(sheet, animated: true)
             }
         case "open":

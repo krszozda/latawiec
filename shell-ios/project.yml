@@ -18,7 +18,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.krszozda.latawiec.shell
         SWIFT_VERSION: "5.0"
-        TARGETED_DEVICE_FAMILY: "1"
+        # iPhone and iPad: the screens come from the server and DivKit
+        # lays them out to whatever width it is given.
+        TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # A store build overrides this on the xcodebuild command line and the
         # Info.plist below bakes it in; empty means the dev fallback chain.
@@ -43,6 +45,13 @@ targets:
       path: Info.plist
       properties:
         UILaunchScreen: {}
+        # Store validation wants every orientation an iPad build claims to
+        # support spelled out; the shell is happy in all of them.
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         LatawiecServerURL: $(LATAWIEC_SERVER_URL)
         CFBundleDisplayName: $(LATAWIEC_APP_NAME)
         CFBundleShortVersionString: $(MARKETING_VERSION)

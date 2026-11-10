@@ -82,6 +82,10 @@ Young but real, built in public. Working today, on both shells, from one Python 
   on tap, puts `"lat,lon"` in the variable, and submits the action with it —
   no Google Play Services on Android, no extra weight on either shell
 
+- Phones and tablets: iPhone, iPad and both orientations; on Android the
+  screen stack survives a rotation with everything typed into it, and comes
+  back by name after the system reclaims the process
+
 What it lacks is mileage: no third-party apps in production yet.
 
 ## Why so small
