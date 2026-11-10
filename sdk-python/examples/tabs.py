@@ -127,6 +127,24 @@ def lock_vault(values: dict[str, str], ctx: lt.Context) -> None:
     app.refresh("vault")
 
 
+@app.screen("map")
+def map_screen() -> lt.Component:
+    return lt.Column(
+        lt.Text("Where we fly", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Map(
+            52.2297,
+            21.0122,
+            zoom=12,
+            height=320,
+            markers=(
+                lt.Marker(52.2297, 21.0122, "Warszawa"),
+                lt.Marker(50.0647, 19.9450, "Kraków"),
+            ),
+            style=lt.Style(margin=16),
+        ),
+    )
+
+
 @app.screen("shoot")
 def shoot() -> lt.Component:
     return lt.Column(

@@ -185,6 +185,35 @@ def test_unlock_refuses_input_the_shells_cannot_carry() -> None:
         lt.Submit("transfer", send=("action",))
 
 
+def test_map_hands_the_shells_everything_they_draw() -> None:
+    card = lt.render(
+        lt.Map(52.2297, 21.0122, zoom=12, height=320, markers=(lt.Marker(50.06, 19.94, "Kraków"),))
+    )
+
+    div = card["card"]["states"][0]["div"]
+    assert div["type"] == "custom"
+    assert div["custom_type"] == "latawiec_map"
+    assert div["height"] == {"type": "fixed", "value": 320}
+    assert div["custom_props"] == {
+        "latitude": 52.2297,
+        "longitude": 21.0122,
+        "zoom": 12,
+        # Empty means "whatever the platform draws by default".
+        "tiles": "",
+        "markers": [{"latitude": 50.06, "longitude": 19.94, "label": "Kraków"}],
+    }
+
+
+def test_map_refuses_coordinates_that_are_not_on_earth() -> None:
+    with pytest.raises(ValueError, match="latitude"):
+        lt.Map(91, 0)
+    with pytest.raises(ValueError, match="longitude"):
+        lt.Map(0, -181)
+    # Tile pyramids stop here; asking for more draws nothing at all.
+    with pytest.raises(ValueError, match="zoom"):
+        lt.Map(0, 0, zoom=21)
+
+
 def test_a_tap_can_run_several_actions_in_order() -> None:
     card = lt.render(lt.Button("Send", on_tap=(lt.Haptic(), lt.Navigate("done"))))
 

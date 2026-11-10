@@ -210,6 +210,7 @@ class MainActivity : AppCompatActivity() {
         val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
             .divPlayerFactory(SystemPlayerFactory())
+            .divCustomContainerViewAdapter(MapViewAdapter(http))
             .build()
         div2Context = Div2Context(this, configuration)
         bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }

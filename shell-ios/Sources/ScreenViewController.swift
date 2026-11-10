@@ -51,6 +51,7 @@ final class ScreenViewController: UIViewController {
     private lazy var components = DivKitComponents(
         // LoadMore rides a visibility action; without this flag DivKit
         // swallows its URL instead of handing it to the handler below.
+        divCustomBlockFactory: MapBlockFactory(),
         flagsInfo: DivFlagsInfo(useUrlHandlerForVisibilityActions: true),
         urlHandler: DivUrlHandlerDelegate { [weak self] url in self?.handle(url) }
     )

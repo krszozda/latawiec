@@ -54,6 +54,13 @@ Components:
   children with Style align/align_vertical
 - Gallery(*children, horizontal=False, spacing=None)  # scrolling list
 - LoadMore(action)  # pagination sentinel, last child of a Gallery
+- Map(latitude, longitude, zoom=14, height=240, markers=(Marker(lat, lon,
+  label), ...), tiles=None)  # pan and zoom; each shell draws it with what
+  the platform has (MapKit on iOS, a tile view on Android), so it costs no
+  dependency and no API key and the two look different by default; `tiles`
+  is an XYZ template ("https://host/{z}/{x}/{y}.png") both shells then draw
+  instead. The Android fallback is OpenStreetMap's own server, a courtesy
+  with a usage policy — ship a real app pointing at your own
 - Grid(*children, columns=N)  # fixed columns, row by row
 - Pager(*children, id=None, spacing=None) + Indicator(pager=id)  # swipeable
   pages with dots

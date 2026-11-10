@@ -816,6 +816,71 @@ class Indicator(Component):
 
 
 @dataclass(frozen=True)
+class Marker:
+    """A pin on a Map."""
+
+    latitude: float
+    longitude: float
+    label: str = ""
+
+
+@dataclass(frozen=True)
+class Map(Component):
+    """A map the user can pan and zoom, with pins on it.
+
+    Each shell draws it with what the platform already has — MapKit on
+    iOS, a tile view on Android — so the map costs the app no dependency
+    and no API key. They therefore look different by default; passing
+    `tiles` makes both draw the same raster tiles instead:
+
+        Map(52.2297, 21.0122, tiles="https://tile.example.com/{z}/{x}/{y}.png")
+
+    OpenStreetMap's own tile servers, which the Android shell falls back
+    to, are a courtesy with a usage policy — a real app points `tiles` at
+    its own server or a paid one.
+    """
+
+    latitude: float
+    longitude: float
+    zoom: int = 14
+    height: int = 240
+    markers: tuple[Marker, ...] = ()
+    tiles: str | None = None
+    style: Style | None = None
+
+    def __post_init__(self) -> None:
+        if not -90 <= self.latitude <= 90:
+            raise ValueError(f"latitude {self.latitude} is outside -90..90")
+        if not -180 <= self.longitude <= 180:
+            raise ValueError(f"longitude {self.longitude} is outside -180..180")
+        if not 1 <= self.zoom <= 20:
+            raise ValueError(f"zoom {self.zoom} is outside 1..20")
+
+    def _build(self) -> dv.Div:
+        # DivKit has no map, so the shells render this custom type
+        # themselves; the payload below is the whole contract between them.
+        return dv.DivCustom(
+            custom_type="latawiec_map",
+            height=dv.DivFixedSize(value=self.height),
+            width=dv.DivMatchParentSize(),
+            custom_props={
+                "latitude": self.latitude,
+                "longitude": self.longitude,
+                "zoom": self.zoom,
+                "tiles": self.tiles or "",
+                "markers": [
+                    {
+                        "latitude": pin.latitude,
+                        "longitude": pin.longitude,
+                        "label": pin.label,
+                    }
+                    for pin in self.markers
+                ],
+            },
+        )
+
+
+@dataclass(frozen=True)
 class Video(Component):
     """A video player fed by URL.
 
