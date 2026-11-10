@@ -72,6 +72,9 @@ Young but real, built in public. Working today, on both shells, from one Python 
 - Feed mechanics: `refreshable=True` gives a screen native pull-to-refresh,
   and a `LoadMore("page")` sentinel at the end of a `Gallery` turns a live
   screen into an infinite scroll
+- Maps: `Map(52.2297, 21.0122, markers=(Marker(52.23, 21.01, "Here"),))` pans
+  and zooms natively — MapKit on iOS, a tile view on Android — with no SDK and
+  no API key; `tiles=` points both at your own raster tiles
 - Biometrics: `Unlock("pay", send=("amount",))` asks for the fingerprint, the
   face or the passcode and submits the action only once it passes — a gate in
   front of the tap, with the server-side check still yours to write
