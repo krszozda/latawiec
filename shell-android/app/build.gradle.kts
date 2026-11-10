@@ -5,9 +5,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// DASH and adaptive HLS, which the platform player cannot do, cost about
+// 726 KiB — more than the budget has left — so they are a per-build
+// choice rather than everyone's weight: pass -PwithVideo. See
+// docs/shipping.md.
+val withVideo = providers.gradleProperty("withVideo").isPresent
+
 android {
     namespace = "io.github.krszozda.latawiec"
     compileSdk = 36
+
+    sourceSets {
+        // The Media3 player only compiles when its libraries are there.
+        getByName("main") { if (withVideo) java.srcDir("src/media3/java") }
+    }
 
     defaultConfig {
         // Shipping your own app overrides these: see docs/shipping.md.
@@ -102,6 +113,15 @@ dependencies {
     implementation("com.yandex.div:div:33.10.0")
     implementation("com.yandex.div:coil:33.10.0")
     implementation("com.google.firebase:firebase-messaging:26.0.1")
+    if (withVideo) {
+        implementation("androidx.media3:media3-exoplayer:1.5.1")
+        implementation("androidx.media3:media3-ui:1.5.1")
+        // ExoPlayer loads these by name at playback time; without them it
+        // plays neither DASH nor HLS — which is most of the reason to
+        // carry it, and the platform player handles HLS on its own.
+        implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
+        implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
+    }
 
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

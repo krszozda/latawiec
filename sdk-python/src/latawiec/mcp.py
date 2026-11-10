@@ -66,7 +66,10 @@ Components:
   pages with dots
 - Tabs(("Title", component), ...)  # in-screen tabs; the native bottom bar is
   Latawiec(tabs=[...])
-- Video(url, autoplay=False, loop=False, muted=False), GifImage(url)
+- Video(url, autoplay=False, loop=False, muted=False, height=200)  # the
+  platform player: MP4 and HLS. DASH needs an Android shell built with
+  -PwithVideo (docs/shipping.md); iOS needs no flag
+- GifImage(url)
   # Video plays through the platform player on both shells (AVPlayer /
   # MediaPlayer): MP4 and HLS, not DASH/DRM — those need a custom factory
 - Separator(color="#B0BEC5"), Spacer(height=N) or Spacer(width=N)
