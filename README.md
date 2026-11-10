@@ -31,6 +31,22 @@ reconnects over WebSocket and renders the fresh screen — no rebuild, no reinst
 bottom bar is native (`BottomNavigationView` / `UITabBarController`), declared from
 Python too.*
 
+## See all of it at once
+
+`examples/showcase.py` walks through the components, what a tap can do, live
+screens and pagination, the device — camera, location, map, video — and the
+store, with each screen saying what it is showing. (Auth, push and deep links
+have examples of their own, since each needs a server set up for it.) Install
+the shell from [Releases](https://github.com/krszozda/latawiec/releases), run
+
+```sh
+cd sdk-python && uv run uvicorn examples.showcase:app --host 0.0.0.0 --port 8010 --reload
+```
+
+set `BASE` at the top of that file to this machine's address as the phone sees
+it, and point the shell at the same address. It is one readable file, and
+reading it is the fastest way to learn what the framework can do.
+
 ## Status
 
 Young but real, built in public. Working today, on both shells, from one Python file:

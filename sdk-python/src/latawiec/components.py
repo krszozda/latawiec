@@ -200,6 +200,13 @@ class Text(Component):
 
 @dataclass(frozen=True)
 class Image(Component):
+    """A picture, fetched by the platform's own image loader.
+
+    The URL has to be absolute: it goes to that loader untouched, so a
+    path relative to your server means nothing to it. A tab icon is the
+    exception — the shell fetches those itself.
+    """
+
     url: str
     style: Style | None = None
 
@@ -222,7 +229,12 @@ class Navigate:
 
 @dataclass(frozen=True)
 class SetVariable:
-    """Tap action: assign a string to a screen variable, on the device."""
+    """Tap action: assign a string to a screen variable, on the device.
+
+    The variable does not have to belong to a control: naming one here is
+    enough for the screen to declare it, so `Text("@{mood}")` beside the
+    button reads what the tap wrote.
+    """
 
     variable: str
     value: str
@@ -1023,13 +1035,18 @@ def _declared_variables(node: Component) -> list[tuple[str, ScreenVariable]]:
 
 
 def _action_variables(node: Component) -> list[tuple[str, ScreenVariable]]:
-    """Variables an action writes into, which no component need carry."""
+    """Variables an action writes into, which no component need carry.
+
+    DivKit refuses to assign to a variable a card never declared — the
+    write is dropped and every expression reading it renders empty — so an
+    action that writes into one declares it here.
+    """
     if not isinstance(node, Button):
         return []
     return [
         (tap.variable, dv.StringVariable(name=tap.variable, value=""))
         for tap in _taps(node)
-        if isinstance(tap, RequestLocation)
+        if isinstance(tap, RequestLocation | SetVariable)
     ]
 
 
