@@ -148,6 +148,10 @@ App and server (Latawiec subclasses FastAPI):
   app.refresh(name) re-renders it for every phone showing it (per-user ctx) —
   refresh fast and that is streaming. @app.screen(..., refresh=N) is the
   cheap variant: the shell refetches every N seconds while on display.
+  refresh() reaches this process only: a second instance serves phones it
+  never touches, so run one instance or refresh every instance off a shared
+  bus (docs/shipping.md). `name` is the template as registered, so a routed
+  screen takes "chat/{room}", not "chat/42", and pushes to every room.
 - @app.upload registers the file sink: it gets an Upload(name, content_type,
   data: bytes) plus optional ctx and returns the string the picker's variable
   is set to. Respects @app.auth; bodies over max_upload_mb (Latawiec arg,

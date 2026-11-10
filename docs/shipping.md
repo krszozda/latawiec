@@ -87,6 +87,58 @@ provisioning profile (base64), and your team id as the `IOS_*` /
 `APPLE_TEAM_ID` secrets, then run the workflow with your branding as
 inputs and download the `.ipa` artifact for Transporter.
 
+## Deploying live screens
+
+A live screen holds a WebSocket, and that socket belongs to the process
+that accepted it. `app.refresh("chat")` walks the subscribers *that
+process* knows about, so a second instance — `uvicorn --workers 4`, three
+replicas, two machines — serves phones that the refresh never reaches.
+Nothing errors and nothing is logged; those phones simply keep the render
+they had until they reconnect.
+
+The same is true of everything else your app keeps in memory. All the
+examples here hold state in module globals, and so a `POST /actions/...`
+that mutates one lands on a single instance: the next GET served by
+another one answers from its own copy. Reassigning `app.tabs` or
+`app.theme` at runtime moves one instance's manifest, and the shells key
+their screen cache on that manifest's fingerprint.
+
+**One instance is the simple answer**, and often the right one — but it is
+one CPU core, so size it: a push renders once per subscriber and re-checks
+that subscriber's access, and a 30-row screen costs about 3 ms of CPU to
+render. Two hundred phones on one refresh is roughly 0.6 s of serialized
+work, sent one socket at a time. The budget is subscribers × refresh rate
+× render cost; measure it against what you actually push.
+
+**To run more than one instance**, have whatever changes the data publish
+to Redis pub/sub or Postgres `LISTEN/NOTIFY`, and have every instance
+subscribe and refresh when it hears. Three things make or break that:
+
+- Publish the **template**, not the path. `_subscribers` is keyed by the
+  name you registered, so `app.refresh("chat/{room}")` is right and
+  `app.refresh("chat/42")` raises `KeyError`. A refresh therefore pushes
+  to every room's subscribers in that instance, each rendered for its own
+  params — correct, but not a way to target one room.
+- Wrap the call in `try/except KeyError`. An instance running older code
+  does not know a newly added screen, and in the usual
+  `pubsub.run_in_thread` shape one raise kills the listener thread — after
+  which that instance honours no refreshes at all, which is a worse
+  version of the problem this section is about.
+- Refresh on hearing the message, not in the handler as well. An instance
+  that both publishes and listens would otherwise render twice.
+
+An instance with nobody subscribed to that screen does the work of an
+empty loop, so publishing to all of them is fine.
+
+**When an instance restarts**, every socket on it drops at once and both
+shells reconnect on their own, backing off from one second to thirty; the
+first message on a new socket is a full render, so a phone recovers its
+current state by itself and may land on a different instance. That also
+means the fan-out gap above heals at every reconnect. What does not
+recover is anything pushed while a phone was away: a push is
+fire-and-forget, with no queue, ack or replay, so `refresh` delivers
+"here is the current state", never a stream of events you can count on.
+
 ## Deep links
 
 Both shells open screens from URLs. A custom scheme works out of the box:

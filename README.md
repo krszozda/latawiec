@@ -77,7 +77,10 @@ Young but real, built in public. Working today, on both shells, from one Python 
   `screen` key opens that screen on tap like a deep link
 - Live screens in production: `@app.screen("chat", live=True)` + `app.refresh("chat")`
   pushes a fresh render to every phone showing it — call it fast and that is
-  streaming (`examples/chat.py`); `refresh=30` is the cheap polling variant
+  streaming (`examples/chat.py`); `refresh=30` is the cheap polling variant.
+  A refresh reaches only the phones connected to the instance it runs on, so
+  live screens want a single instance, or a bus that refreshes every one of
+  them — see [deploying live screens](docs/shipping.md#deploying-live-screens)
 - Animations in `Style`: `appear=Fade()` / `Slide()` / `Grow()`, `disappear`,
   `move=N` for layout shifts — they fire on live refreshes too, so streamed
   content glides in instead of popping
