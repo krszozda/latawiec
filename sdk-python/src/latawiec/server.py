@@ -364,6 +364,14 @@ class Latawiec(FastAPI):
         the server starts serving there is nobody to refresh, so it is a
         no-op. Bursts coalesce: pushes of one screen run one at a time, and
         refreshes landing mid-push fold into a single trailing re-render.
+
+        **Reaches only this process.** The sockets belong to the instance
+        that accepted them, so a second instance serves phones this call
+        never reaches, silently. Either run one instance or refresh every
+        instance off a shared bus; `name` is the template as registered,
+        so a routed screen takes "chat/{room}", not "chat/42", and pushes
+        to every room in this process. Safe to call where nobody is
+        subscribed. See docs/shipping.md for the whole story.
         """
         if name not in self._screens:
             raise KeyError(f"no screen named {name!r}")
