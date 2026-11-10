@@ -51,7 +51,7 @@ reading it is the fastest way to learn what the framework can do.
 
 Young but real, built in public. Working today, on both shells, from one Python file:
 
-- 19 components with a styling layer, native bottom bars, and routed screens —
+- 22 components with a styling layer, native bottom bars, and routed screens —
   `@app.screen("product/{id}")` receives `ctx.params`, builders may be `async`
 - Device context on every request: `ctx.locale`, `ctx.platform`, `ctx.timezone`,
   `ctx.app_version` — i18n is a plain `if` in your Python
