@@ -33,6 +33,9 @@ jobs:
           java-version: 17
       - run: ./gradlew :app:assembleDebug --no-daemon
       - run: ./gradlew :app:assembleRelease --no-daemon
+      # The opt-in player lives in its own source set, which no other
+      # build compiles — without this it could rot unnoticed.
+      - run: ./gradlew :app:assembleDebug -PwithVideo --no-daemon
       - name: apk size budget
         run: |
           apk=app/build/outputs/apk/release/app-release-unsigned.apk

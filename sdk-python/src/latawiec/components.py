@@ -886,7 +886,8 @@ class Video(Component):
 
     Both shells play through the platform player (AVPlayer / MediaPlayer),
     so the supported formats are what the system plays — MP4 and HLS cover
-    it. DASH or DRM needs a custom player factory in the shell.
+    it. DASH needs an Android shell built with -PwithVideo, which carries
+    ExoPlayer; see docs/shipping.md.
     """
 
     url: str
@@ -894,11 +895,16 @@ class Video(Component):
     loop: bool = False
     muted: bool = False
     style: Style | None = None
+    # Last, so an app written against an earlier release keeps working.
+    height: int = 200
+    """A video has no size until it loads, and DivKit sizes it to its
+    content, so without this the player is zero pixels tall."""
 
     def _build(self) -> dv.Div:
         # DivKit requires the mime type; derive it from the URL's extension.
         mime, _ = mimetypes.guess_type(self.url)
         return dv.DivVideo(
+            height=dv.DivFixedSize(value=self.height),
             video_sources=[dv.DivVideoSource(url=self.url, mime_type=mime or "video/mp4")],
             autostart=True if self.autoplay else None,
             repeatable=True if self.loop else None,

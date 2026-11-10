@@ -502,6 +502,9 @@ def test_video_flags_are_emitted_only_when_set() -> None:
     plain = lt.render(lt.Video("https://x/clip.mp4"))["card"]["states"][0]["div"]
     assert plain == {
         "type": "video",
+        # A video has no size until it loads; without a height the player
+        # would be zero pixels tall.
+        "height": {"type": "fixed", "value": 200},
         "video_sources": [
             {"type": "video_source", "url": "https://x/clip.mp4", "mime_type": "video/mp4"}
         ],

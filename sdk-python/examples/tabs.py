@@ -127,6 +127,22 @@ def lock_vault(values: dict[str, str], ctx: lt.Context) -> None:
     app.refresh("vault")
 
 
+@app.screen("clip")
+def clip(ctx: lt.Context) -> lt.Component:
+    # The emulator reaches the host by a different name than the simulator.
+    host = "10.0.2.2" if ctx.platform == "android" else "127.0.0.1"
+    return lt.Column(
+        lt.Text("A short clip", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Video(
+            f"http://{host}:8001/assets/clip.mp4",
+            autoplay=True,
+            loop=True,
+            muted=True,
+            style=lt.Style(margin=16),
+        ),
+    )
+
+
 @app.screen("map")
 def map_screen() -> lt.Component:
     return lt.Column(

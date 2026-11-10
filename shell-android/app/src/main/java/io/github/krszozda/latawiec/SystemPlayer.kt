@@ -36,7 +36,7 @@ class SystemPlayerFactory : DivPlayerFactory {
 class SystemPlayer(
     private var sources: List<DivVideoSource>,
     private var config: DivPlayerPlaybackConfig,
-) : DivPlayer {
+) : DivPlayer, HoldablePlayer {
 
     private val observers = mutableSetOf<DivPlayer.Observer>()
     private var video: VideoView? = null
@@ -86,12 +86,12 @@ class SystemPlayer(
     }
 
     /** Covered by another screen: stop decoding but keep the intent. */
-    fun hold() {
+    override fun hold() {
         if (prepared) video?.pause()
     }
 
     /** Uncovered again: pick up where the intent left off. */
-    fun resume() {
+    override fun resume() {
         if (prepared && playWhenReady) video?.start()
     }
 

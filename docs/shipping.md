@@ -173,6 +173,23 @@ The foreground case matches the background one on both platforms: iOS
 shows the banner, the Android shell re-posts the message as a local
 notification (swap its placeholder icon together with the launcher one).
 
+## Video beyond the platform player
+
+The default shell plays video through Android's own `MediaPlayer` and
+iOS's `AVPlayer`: MP4 and HLS, which covers most apps and costs nothing.
+DASH and adaptive HLS need ExoPlayer, which with those two formats costs
+about 726 KiB — more than the whole 3 MB budget has left — so it is a
+per-build choice:
+
+```
+./gradlew :app:assembleRelease -PwithVideo
+```
+
+That build measures 3,644,695 B against the default 2,901,512 B, which
+is deliberately over the budget CI enforces for the clean shell. iOS
+needs no flag: AVPlayer already plays what it plays, and nothing larger
+ships with the shell.
+
 ## Location, the camera and Face ID
 
 None needs a build flag, but iOS shows your own sentence in the system

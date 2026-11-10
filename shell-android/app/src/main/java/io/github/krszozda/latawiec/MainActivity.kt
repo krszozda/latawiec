@@ -3,6 +3,7 @@ package io.github.krszozda.latawiec
 import android.Manifest
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -54,6 +55,8 @@ import com.yandex.div.core.Div2Context
 import com.yandex.div.core.DivActionHandler
 import com.yandex.div.core.DivConfiguration
 import com.yandex.div.core.DivViewFacade
+import com.yandex.div.core.player.DivPlayerFactory
+import com.yandex.div.core.player.DivPlayerView
 import com.yandex.div.core.view2.Div2View
 import com.yandex.div.data.DivParsingEnvironment
 import com.yandex.div.json.ParsingErrorLogger
@@ -149,6 +152,9 @@ class MainActivity : AppCompatActivity() {
     /** Where the camera app was told to write, and where we read it back. */
     private var pendingPhotoUri: Uri? = null
 
+    /** Which player this build carries, for the video screen to publish. */
+    private var videoPlayer = "system"
+
     /** The submit waiting behind the device's own unlock screen. */
     private var pendingUnlock: Pair<String, JSONObject>? = null
     private var unlockSignal: CancellationSignal? = null
@@ -209,12 +215,16 @@ class MainActivity : AppCompatActivity() {
         screenCache = ScreenCache(this)
         val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
-            .divPlayerFactory(SystemPlayerFactory())
+            .divPlayerFactory(playerFactory())
             .divCustomContainerViewAdapter(MapViewAdapter(http))
             .build()
         div2Context = Div2Context(this, configuration)
         bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
-        stackHost = FrameLayout(this)
+        stackHost = FrameLayout(this).apply {
+            // So the video test can tell a -PwithVideo build from a
+            // default one, instead of passing on the fallback either way.
+            contentDescription = "player:$videoPlayer"
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(stackHost, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
@@ -383,7 +393,12 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         unlockSignal?.cancel()
         cancelFix()
-        screens.forEach(ScreenView::stop)
+        screens.forEach {
+            it.stop()
+            // VideoView lets go of its MediaPlayer with the surface;
+            // ExoPlayer keeps a thread and an audio track until told.
+            it.cleanup()
+        }
         super.onDestroy()
     }
 
@@ -510,11 +525,11 @@ class MainActivity : AppCompatActivity() {
             forEachPlayer(this) { it.resume() }
         }
 
-        private fun forEachPlayer(group: ViewGroup, action: (SystemPlayer) -> Unit) {
+        private fun forEachPlayer(group: ViewGroup, action: (HoldablePlayer) -> Unit) {
             for (i in 0 until group.childCount) {
                 when (val child = group.getChildAt(i)) {
-                    is SystemPlayerView ->
-                        (child.getAttachedPlayer() as? SystemPlayer)?.let(action)
+                    is DivPlayerView ->
+                        (child.getAttachedPlayer() as? HoldablePlayer)?.let(action)
                     is ViewGroup -> forEachPlayer(child, action)
                 }
             }
@@ -712,6 +727,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * A -PwithVideo build carries ExoPlayer; a default one does not, and
+     * referring to the class directly would not compile there. Reflection
+     * is what keeps the two builds one source tree.
+     */
+    private fun playerFactory(): DivPlayerFactory = try {
+        (
+            Class.forName("io.github.krszozda.latawiec.Media3PlayerFactory")
+                .getDeclaredConstructor(Context::class.java)
+                .newInstance(this) as DivPlayerFactory
+            ).also { videoPlayer = "media3" }
+    } catch (e: ReflectiveOperationException) {
+        SystemPlayerFactory()
+    } catch (e: LinkageError) {
+        // The class is there but its libraries are not: a half-shrunk
+        // build, which would otherwise crash instead of falling back.
+        Log.w(TAG, "Media3 is present but unusable: $e")
+        SystemPlayerFactory()
     }
 
     /**
