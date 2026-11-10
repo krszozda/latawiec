@@ -28,6 +28,10 @@ on:
         description: "Why the app wants the camera (shown in the system prompt)"
         required: false
         default: "Lets you add a photo you take yourself."
+      faceIdReason:
+        description: "Why the app asks for Face ID (shown in the system prompt)"
+        required: false
+        default: "Confirms it is you before a sensitive action."
       versionName:
         description: "Marketing version, e.g. 1.0"
         required: true
@@ -78,6 +82,7 @@ jobs:
           SERVER_URL: ${{ inputs.serverUrl }}
           LOCATION_REASON: ${{ inputs.locationReason }}
           CAMERA_REASON: ${{ inputs.cameraReason }}
+          FACEID_REASON: ${{ inputs.faceIdReason }}
           VERSION_NAME: ${{ inputs.versionName }}
           BUILD_NUMBER: ${{ inputs.buildNumber }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -91,6 +96,7 @@ jobs:
             LATAWIEC_APP_NAME="$APP_NAME" \
             LATAWIEC_LOCATION_REASON="$LOCATION_REASON" \
             LATAWIEC_CAMERA_REASON="$CAMERA_REASON" \
+            LATAWIEC_FACEID_REASON="$FACEID_REASON" \
             PRODUCT_BUNDLE_IDENTIFIER="$APP_ID" \
             MARKETING_VERSION="$VERSION_NAME" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \

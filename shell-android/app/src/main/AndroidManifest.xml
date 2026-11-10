@@ -3,6 +3,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Granted at install, with no prompt: it only lets the shell raise
+         the system's own check. An app without Unlock can delete it. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Only asked for when a screen runs RequestLocation; an app that never
          does can delete these two lines. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

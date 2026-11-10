@@ -94,6 +94,39 @@ def system(ctx: lt.Context) -> lt.Component:
 SPOTS: dict[str, str] = {}
 
 
+VAULTS: dict[str, bool] = {}
+
+
+@app.screen("vault", live=True)
+def vault(ctx: lt.Context) -> lt.Component:
+    return lt.Column(
+        lt.Text("Vault", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Button(
+            "Unlock it",
+            on_tap=lt.Unlock("open_vault", reason="Confirm it's you"),
+            style=lt.Style(margin=16),
+        ),
+        lt.Text(
+            "Open" if VAULTS.get(ctx.platform) else "Locked",
+            style=lt.Style(margin=lt.Edges(left=16, right=16)),
+        ),
+    )
+
+
+@app.action("open_vault")
+def open_vault(values: dict[str, str], ctx: lt.Context) -> None:
+    VAULTS[ctx.platform] = True
+    app.refresh("vault")
+
+
+@app.action("lock_vault")
+def lock_vault(values: dict[str, str], ctx: lt.Context) -> None:
+    # The UI tests call this first: a vault left open by the last run would
+    # let the assertion pass without the shell doing anything.
+    VAULTS.pop(ctx.platform, None)
+    app.refresh("vault")
+
+
 @app.screen("shoot")
 def shoot() -> lt.Component:
     return lt.Column(

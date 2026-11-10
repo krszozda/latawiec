@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreLocation
 import DivKit
+import LocalAuthentication
 import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
@@ -13,6 +14,9 @@ private let notAuthorized = 4401
 
 /// How long a RequestLocation waits for a fix before giving up on one.
 private let fixTimeout: TimeInterval = 10
+
+/// Both shells word it the same way, so the docs can promise it.
+private let noLock = "This device has no lock set up"
 
 /// What a tap on an ImagePicker(source="camera") can do.
 enum CameraGate {
@@ -69,6 +73,7 @@ final class ScreenViewController: UIViewController {
     }
 
     private var pendingLocation: LocationAsk?
+    private var unlockContext: LAContext?
 
     /// Variables the shell wrote itself — a picked photo, a location fix.
     /// A re-render resets the card's data and would drop them, so they are
@@ -412,6 +417,12 @@ final class ScreenViewController: UIViewController {
                 locationAsks += 1
                 requestFix()
             }
+        case "unlock":
+            var values = queryValues(of: url)
+            if let action = values.removeValue(forKey: "action") {
+                let reason = values.removeValue(forKey: "reason") ?? ""
+                unlock(action: action, values: values, reason: reason)
+            }
         case "signout":
             Auth.signOut(to: queryValues(of: url)["screen"])
         case "share":
@@ -546,6 +557,35 @@ extension ScreenViewController: PHPickerViewControllerDelegate {
                 .replacingOccurrences(of: "\"", with: "_")
                 .components(separatedBy: .newlines).joined()
             self?.upload(data, name: safeName, mime: mime, into: variable)
+        }
+    }
+
+    /// The device's own check — Face ID, Touch ID, or the passcode — in
+    /// front of a submit. It gates the tap, not the server: the action
+    /// POSTs like any other once the check passes.
+    private func unlock(action: String, values: [String: String], reason: String) {
+        // Held in a field: a context released mid-evaluation cancels it.
+        let context = LAContext()
+        unlockContext = context
+        // .deviceOwnerAuthentication, not …WithBiometrics: a phone whose
+        // owner never set up Face ID still has a passcode.
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) else {
+            showError(noLock)
+            return
+        }
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) {
+            [weak self] passed, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.unlockContext = nil
+                if passed {
+                    self.submit(action: action, values: values)
+                    return
+                }
+                // Every refusal already said its piece in the system sheet,
+                // so the shell only records it.
+                log.warning("unlock refused: \(String(describing: error))")
+            }
         }
     }
 

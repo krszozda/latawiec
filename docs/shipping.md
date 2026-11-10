@@ -173,17 +173,22 @@ The foreground case matches the background one on both platforms: iOS
 shows the banner, the Android shell re-posts the message as a local
 notification (swap its placeholder icon together with the launcher one).
 
-## Location and the camera
+## Location, the camera and Face ID
 
-Neither needs a build flag, but iOS shows your own sentence in the system
-prompt and App Store review rejects a vague one. Pass them with the
-`locationReason` and `cameraReason` inputs of `ship-ios`, or as
-`LATAWIEC_LOCATION_REASON="Finds shops near you."` and
-`LATAWIEC_CAMERA_REASON="Adds a photo to your report."` on the
+None needs a build flag, but iOS shows your own sentence in the system
+prompt and App Store review rejects a vague one. (The Face ID string is
+shown once, when the app first uses it; the sentence on each `Unlock` is
+that action's own `reason`.) Pass them with the
+`locationReason`, `cameraReason` and `faceIdReason` inputs of
+`ship-ios`, or as `LATAWIEC_LOCATION_REASON="Finds shops near you."`,
+`LATAWIEC_CAMERA_REASON="Adds a photo to your report."` and
+`LATAWIEC_FACEID_REASON="Confirms a payment is yours."` on the
 `xcodebuild` command line. An app that never asks for a location can
 delete the two `ACCESS_*_LOCATION` lines from
 `app/src/main/AndroidManifest.xml`; the camera needs no Android
-permission at all, since the system camera app takes the shot.
+permission at all, since the system camera app takes the shot. `Unlock`
+uses `USE_BIOMETRIC`, which is granted at install with no prompt; an app
+without `Unlock` can delete that line too.
 
 The iOS simulator has no camera (it claims otherwise, then shows a blank
 capture screen), so the shell treats it as camera-less: `source="camera"`

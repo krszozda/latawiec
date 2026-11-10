@@ -34,6 +34,7 @@ Components:
   #       | Share(text) | OpenUrl(url) | CopyToClipboard(text)
   #       | Haptic(feedback="light"|"medium"|"heavy"|"success"|"error")
   #       | RequestLocation(variable, then=None)  # see below
+  #       | Unlock(action, send=(variable, ...), reason="Confirm it's you")
   #       | a tuple of the above, run in order: (Haptic("success"), Submit(...))
   # OpenUrl leaves the app; shells follow http(s), mailto, tel, and sms only
 - TextInput(variable, hint=None, initial="", password=False)  # declares its variable
@@ -105,6 +106,15 @@ App and server (Latawiec subclasses FastAPI):
   as dict[str, str] and may return Navigate to send the shell onward.
 - @app.screen(..., refreshable=True) adds the pull-to-refresh gesture in
   production (on iOS the screen's root must scroll, e.g. a Gallery).
+- Unlock(action, send=(), reason=...) puts the device's own check — a
+  fingerprint, a face, or the passcode — in front of a Submit: the action
+  POSTs, with the same values Submit would send, only once the check
+  passes, and the handler may answer with a Navigate. It gates the tap,
+  not the server: nothing stops a patched client from POSTing the action
+  anyway, so anything that must not happen for the wrong person still
+  needs @app.auth and a check in the handler. A device with no lock set
+  up says "This device has no lock set up" on both shells and submits
+  nothing; a cancel submits nothing silently.
 - RequestLocation(variable, then=None) asks the device where it is and puts
   "lat,lon" in `variable`, which it declares itself. The first tap raises the
   system permission prompt, so put it on a control the user pressed on
