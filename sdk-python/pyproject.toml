@@ -51,3 +51,6 @@ include = ["src", "tests", "examples"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The examples run as `uvicorn examples.x:app` from this directory; the
+# showcase test imports one the same way.
+pythonpath = ["."]

@@ -230,6 +230,20 @@ def test_purchase_names_the_product_and_the_handler() -> None:
     )
 
 
+def test_set_variable_declares_the_variable_it_writes_into() -> None:
+    # DivKit drops a write to a variable the card never declared, and every
+    # expression reading it renders empty — so a button is enough to
+    # declare one.
+    card = lt.render(
+        lt.Column(
+            lt.Text("Mood: @{mood}"),
+            lt.Button("Cheer up", on_tap=lt.SetVariable("mood", "sunny")),
+        )
+    )
+
+    assert card["card"]["variables"] == [{"type": "string", "name": "mood", "value": ""}]
+
+
 def test_a_tap_can_run_several_actions_in_order() -> None:
     card = lt.render(lt.Button("Send", on_tap=(lt.Haptic(), lt.Navigate("done"))))
 
