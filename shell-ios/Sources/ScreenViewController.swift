@@ -75,6 +75,7 @@ final class ScreenViewController: UIViewController {
 
     private var pendingLocation: LocationAsk?
     private var unlockContext: LAContext?
+    private var purchaseWatcher: Task<Void, Never>?
 
     /// Variables the shell wrote itself — a picked photo, a location fix.
     /// A re-render resets the card's data and would drop them, so they are
@@ -103,6 +104,7 @@ final class ScreenViewController: UIViewController {
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
+        purchaseWatcher?.cancel()
         socket?.cancel()
     }
 
@@ -424,6 +426,13 @@ final class ScreenViewController: UIViewController {
                 let reason = values.removeValue(forKey: "reason") ?? ""
                 unlock(action: action, values: values, reason: reason)
             }
+        case "buy":
+            let values = queryValues(of: url)
+            if let product = values["product"], let action = values["action"] {
+                // The same handler takes anything the store delivers later.
+                watchForPurchases(action: action)
+                buy(product: product, action: action)
+            }
         case "signout":
             Auth.signOut(to: queryValues(of: url)["screen"])
         case "share":
@@ -504,9 +513,16 @@ final class ScreenViewController: UIViewController {
     /// the navigation it answers with. The values arrive in the action URL's
     /// query: the server wrote them there as DivKit expressions, evaluated at
     /// tap time.
-    private func submit(action: String, values: [String: String]) {
+    private func submit(
+        action: String,
+        values: [String: String],
+        landed: ((Bool) -> Void)? = nil
+    ) {
         let path = action.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? action
-        guard let url = URL(string: "\(Server.url)/actions/\(path)") else { return }
+        guard let url = URL(string: "\(Server.url)/actions/\(path)") else {
+            landed?(false)
+            return
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -515,21 +531,25 @@ final class ScreenViewController: UIViewController {
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error {
                 log.warning("action \(action) failed: \(String(describing: error))")
+                landed?(false)
                 DispatchQueue.main.async { self?.showError("No connection — try again") }
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             if status == 401 {
+                landed?(false)
                 DispatchQueue.main.async { Auth.unauthorized() }
                 return
             }
             guard status == 200, let data else {
                 log.warning("action \(action) answered HTTP \(status)")
+                landed?(false)
                 DispatchQueue.main.async {
                     self?.showError("Something went wrong — try again")
                 }
                 return
             }
+            landed?(true)
             guard let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { return }
             // A sign-in action grants the token every later request
@@ -566,6 +586,43 @@ extension ScreenViewController: PHPickerViewControllerDelegate {
                 .replacingOccurrences(of: "\"", with: "_")
                 .components(separatedBy: .newlines).joined()
             self?.upload(data, name: safeName, mime: mime, into: variable)
+        }
+    }
+
+    /// The store's flow in front of a submit: the action carries the
+    /// receipt, and the server decides what it is worth.
+    private func buy(product: String, action: String) {
+        Task { @MainActor in
+            switch await Store.buy(product) {
+            case let .bought(purchase):
+                deliver(purchase, to: action)
+            case .nothingToReport:
+                return
+            case let .failed(message):
+                showError(message)
+            }
+        }
+    }
+
+    /// A purchase is finished only once the server has its receipt: an
+    /// unfinished transaction comes back on the next launch, a finished one
+    /// the server never heard about is gone for good.
+    private func deliver(_ purchase: StorePurchase, to action: String) {
+        submit(action: action, values: purchase.values) { landed in
+            guard landed else { return }
+            Task { await purchase.finish() }
+        }
+    }
+
+    /// Ask to Buy approved an hour later, a purchase made on another
+    /// device, a redeemed code: StoreKit delivers all of them here and
+    /// nowhere else, so a shell that does not listen loses them.
+    private func watchForPurchases(action: String) {
+        guard purchaseWatcher == nil else { return }
+        purchaseWatcher = Task { [weak self] in
+            for await purchase in Store.deliveries() {
+                await MainActor.run { self?.deliver(purchase, to: action) }
+            }
         }
     }
 

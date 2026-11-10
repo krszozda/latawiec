@@ -11,13 +11,21 @@ plugins {
 // docs/shipping.md.
 val withVideo = providers.gradleProperty("withVideo").isPresent
 
+// Play's billing library costs about 81 KiB, most of what the budget has
+// left, and an app that sells nothing should not carry it: pass
+// -PwithBilling. See docs/shipping.md.
+val withBilling = providers.gradleProperty("withBilling").isPresent
+
 android {
     namespace = "io.github.krszozda.latawiec"
     compileSdk = 36
 
     sourceSets {
         // The Media3 player only compiles when its libraries are there.
-        getByName("main") { if (withVideo) java.srcDir("src/media3/java") }
+        getByName("main") {
+            if (withVideo) java.srcDir("src/media3/java")
+            if (withBilling) java.srcDir("src/billing/java")
+        }
     }
 
     defaultConfig {
@@ -113,6 +121,7 @@ dependencies {
     implementation("com.yandex.div:div:33.10.0")
     implementation("com.yandex.div:coil:33.10.0")
     implementation("com.google.firebase:firebase-messaging:26.0.1")
+    if (withBilling) implementation("com.android.billingclient:billing-ktx:7.1.1")
     if (withVideo) {
         implementation("androidx.media3:media3-exoplayer:1.5.1")
         implementation("androidx.media3:media3-ui:1.5.1")

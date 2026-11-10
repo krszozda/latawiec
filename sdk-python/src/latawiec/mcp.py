@@ -34,6 +34,7 @@ Components:
   #       | Share(text) | OpenUrl(url) | CopyToClipboard(text)
   #       | Haptic(feedback="light"|"medium"|"heavy"|"success"|"error")
   #       | RequestLocation(variable, then=None)  # see below
+  #       | Purchase(product, action)  # see below
   #       | Unlock(action, send=(variable, ...), reason="Confirm it's you")
   #       | a tuple of the above, run in order: (Haptic("success"), Submit(...))
   # OpenUrl leaves the app; shells follow http(s), mailto, tel, and sms only
@@ -116,6 +117,13 @@ App and server (Latawiec subclasses FastAPI):
   as dict[str, str] and may return Navigate to send the shell onward.
 - @app.screen(..., refreshable=True) adds the pull-to-refresh gesture in
   production (on iOS the screen's root must scroll, e.g. a Gallery).
+- Purchase(product, action) runs the store's buy flow and submits `action`
+  with the store's receipt under "receipt" and the id under "product".
+  Verify that receipt with Apple or Google in the handler before granting
+  anything: the shell reports what the store said, and a patched client can
+  report anything. A cancelled purchase submits nothing. iOS needs no build
+  flag; Android needs -PwithBilling (docs/shipping.md), and a build without
+  it says so instead of leaving a silent button.
 - Unlock(action, send=(), reason=...) puts the device's own check — a
   fingerprint, a face, or the passcode — in front of a Submit: the action
   POSTs, with the same values Submit would send, only once the check

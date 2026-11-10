@@ -214,6 +214,22 @@ def test_map_refuses_coordinates_that_are_not_on_earth() -> None:
         lt.Map(0, 0, zoom=21)
 
 
+def test_purchase_names_the_product_and_the_handler() -> None:
+    card = lt.render(lt.Button("Buy", on_tap=lt.Purchase("pro.month", "grant")))
+
+    action = card["card"]["states"][0]["div"]["actions"][0]
+    assert action == {
+        "log_id": "buy:pro.month",
+        "url": "latawiec://buy?product=pro.month&action=grant",
+    }
+
+    # Something that can be bought again is consumed once the handler grants.
+    again = lt.render(lt.Button("Coins", on_tap=lt.Purchase("coins.10", "grant", consumable=True)))
+    assert again["card"]["states"][0]["div"]["actions"][0]["url"] == (
+        "latawiec://buy?product=coins.10&action=grant&consumable=1"
+    )
+
+
 def test_a_tap_can_run_several_actions_in_order() -> None:
     card = lt.render(lt.Button("Send", on_tap=(lt.Haptic(), lt.Navigate("done"))))
 
