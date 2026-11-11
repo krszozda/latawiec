@@ -106,6 +106,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        // A malformed manifest is logged, and the stub android.jar a unit
+        // test runs against throws from every method unless this is on. It
+        // is module-wide: a unit test here must assert on this code, never
+        // on a platform call, which silently answers 0 or null.
+        unitTests.isReturnDefaultValues = true
+    }
+
     lint {
         warningsAsErrors = true
         checkTestSources = true
@@ -153,6 +161,10 @@ dependencies {
     }
 
     testImplementation("junit:junit:4.13.2")
+    // The stub android.jar has JSONObject without a body; a unit test that
+    // parses a manifest needs the real implementation, which AGP puts ahead
+    // of the stub on the test classpath.
+    testImplementation("org.json:json:20231013")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
