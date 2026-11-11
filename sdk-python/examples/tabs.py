@@ -62,7 +62,7 @@ def photo() -> lt.Component:
     return lt.Column(
         lt.Text("Pick a photo", size=28, weight="bold", style=lt.Style(margin=48)),
         lt.ImagePicker("snap", style=lt.Style(margin=16)),
-        lt.Text("@{snap}", size=12, color="#757575", style=lt.Style(margin=16)),
+        lt.Text(lt.Expression("@{snap}"), size=12, color="#757575", style=lt.Style(margin=16)),
         lt.Button("Send it", on_tap=lt.Submit("keep", send=("snap",)), style=lt.Style(margin=16)),
     )
 
@@ -210,7 +210,19 @@ def shoot() -> lt.Component:
         lt.Text("Snapshot", size=28, weight="bold", style=lt.Style(margin=48)),
         # No label: the component says "Take a photo" because of the source.
         lt.ImagePicker("shot", source="camera", style=lt.Style(margin=16)),
-        lt.Text("@{shot}", size=12, color="#757575", style=lt.Style(margin=16)),
+        lt.Text(lt.Expression("@{shot}"), size=12, color="#757575", style=lt.Style(margin=16)),
+    )
+
+
+@app.screen("literal")
+def literal() -> lt.Component:
+    # Three strings an app's own data could hold, which have to reach the
+    # screen as written, and one that asked to be evaluated.
+    return lt.Column(
+        lt.Text("Sent @{total} items", size=20, style=lt.Style(margin=16)),
+        lt.Text("Saved to C:\\reports", size=20, style=lt.Style(margin=16)),
+        lt.Text("Ends with a backslash \\\\", size=20, style=lt.Style(margin=16)),
+        lt.Text(lt.Expression("Adds up to @{1 + 1}"), size=20, style=lt.Style(margin=16)),
     )
 
 
@@ -223,7 +235,7 @@ def where(ctx: lt.Context) -> lt.Component:
             on_tap=lt.RequestLocation("spot", then="note_spot"),
             style=lt.Style(margin=16),
         ),
-        lt.Text("At @{spot}", style=lt.Style(margin=lt.Edges(left=16, right=16))),
+        lt.Text(lt.Expression("At @{spot}"), style=lt.Style(margin=lt.Edges(left=16, right=16))),
         lt.Text(
             f"Server saw {SPOTS.get(ctx.platform, 'nothing')}",
             color="#757575",

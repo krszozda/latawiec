@@ -127,7 +127,9 @@ Layout: `Column`, `Row`, `Stack` (overlap), `Gallery` (scrolling list), `Grid`,
 Content: `Text`, `Image`, `GifImage`, `Video`, `Button`.
 Forms: `TextInput`, `Switch`, `Select`, `Slider` —
 each binds a screen variable that any component can read reactively with a DivKit
-expression (`Text("Hello, @{name}!")`), and `Submit` POSTs the values to the server.
+expression (`Text(Expression("Hello, @{name}!"))`), and `Submit` POSTs the values to
+the server. Every other string is shown exactly as written, so a name, a review or
+anything else your users typed is never read as an expression.
 
 Every component takes `style=Style(...)` — padding, margin, width/height (dp, `"fill"`,
 `"wrap"`), background, corner radius, border, alignment, alpha — with `Edges` for

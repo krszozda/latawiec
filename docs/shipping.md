@@ -104,7 +104,7 @@ can perform is compiled into the binary the reviewer approved; the JSON
 picks among them and fills in the text, the colors and the sizes. No dex,
 no JAR and no shared object is fetched.
 
-DivKit expressions — `Text("Hello, @{name}!")` — *are* evaluated, by an
+DivKit expressions — `Text(Expression("Hello, @{name}!"))` — *are* evaluated, by an
 interpreter inside DivKit: `div-evaluable` ships a tokenizer, a parser, an
 evaluator and 316 class files in its `function` package. That is narrower
 than the webview JavaScript Play's exemption was written for, which is the

@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from typing import cast
+
 import pytest
 
 import latawiec as lt
@@ -142,7 +145,7 @@ def test_request_location_declares_the_variable_it_writes_into() -> None:
     # read it the moment the fix lands.
     card = lt.render(
         lt.Column(
-            lt.Text("@{spot}"),
+            lt.Text(lt.Expression("@{spot}")),
             lt.Button("Locate", on_tap=lt.RequestLocation("spot")),
         )
     )
@@ -287,7 +290,7 @@ def test_set_variable_declares_the_variable_it_writes_into() -> None:
     # declare one.
     card = lt.render(
         lt.Column(
-            lt.Text("Mood: @{mood}"),
+            lt.Text(lt.Expression("Mood: @{mood}")),
             lt.Button("Cheer up", on_tap=lt.SetVariable("mood", "sunny")),
         )
     )
@@ -821,3 +824,148 @@ def test_load_more_fires_its_action_on_sight() -> None:
             "visibility_percentage": 1,
         }
     ]
+
+
+def test_text_shows_an_expression_someone_typed_instead_of_evaluating_it() -> None:
+    card = lt.render(lt.Text("Winner: @{name}"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["text"] == "Winner: @{'\\@{'}name}"
+
+
+def test_an_expression_reaches_the_shells_as_written() -> None:
+    card = lt.render(lt.Text(lt.Expression("Hello, @{name}!")))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["text"] == "Hello, @{name}!"
+
+
+def test_a_backslash_also_travels_as_an_expression() -> None:
+    # A lone backslash escapes nothing, which Android renders as an empty
+    # text and iOS drops the run for.
+    card = lt.render(lt.Text("C:\\users"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["text"] == "C:@{'\\\\'}users"
+
+
+def test_text_with_neither_a_backslash_nor_an_expression_travels_untouched() -> None:
+    card = lt.render(lt.Text("Box kite — $29"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["text"] == "Box kite — $29"
+
+
+def test_both_a_backslash_and_an_expression_are_escaped_together() -> None:
+    card = lt.render(lt.Text("C:\\users @{name}"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["text"] == "C:@{'\\\\'}users @{'\\@{'}name}"
+
+
+def test_a_quote_needs_nothing_because_the_text_stays_text() -> None:
+    # Only the two characters that mean something leave the literal, so a
+    # quote is still just a quote.
+    card = lt.render(lt.Text("it's @{name}"))
+
+    div = card["card"]["states"][0]["div"]
+    assert div["text"] == "it's @{'\\@{'}name}"
+
+
+POISON = "@{secret}"
+
+# What the DSL sends in its place: an expression evaluating to "@{".
+MARKER = "@{'\\@{'}"
+
+# One component per entry, each holding POISON in a string a shell evaluates.
+EVALUATED = {
+    "Text": lt.Text(POISON),
+    "Image": lt.Image(POISON),
+    "Video": lt.Video(POISON),
+    "GifImage": lt.GifImage(POISON),
+    "Button": lt.Button(POISON, on_tap=lt.Navigate("home")),
+    "LoadMore": lt.LoadMore("more", label=POISON),
+    "ImagePicker": lt.ImagePicker("photo", label=POISON),
+    "TextInput": lt.TextInput("name", hint=POISON),
+    "Select": lt.Select("pick", options=(lt.Option(POISON),), hint=POISON),
+    "Tabs": lt.Tabs((POISON, lt.Text("inside"))),
+    "SetVariable": lt.Button("tap", on_tap=lt.SetVariable("mood", POISON)),
+    # These four put the caller's string in a log_id, which DivKit
+    # evaluates like any other field.
+    "Navigate": lt.Button("tap", on_tap=lt.Navigate(POISON)),
+    "Submit": lt.Button("tap", on_tap=lt.Submit(POISON)),
+    "Unlock": lt.Button("tap", on_tap=lt.Unlock(POISON)),
+    "Purchase": lt.Button("tap", on_tap=lt.Purchase(POISON, "grant")),
+    "CopyToClipboard": lt.Button("tap", on_tap=lt.CopyToClipboard(POISON)),
+}
+
+# Everything else that renders, and what keeps its strings out of an
+# expression field — so adding a component is a decision, not an omission.
+NOT_EVALUATED = {
+    "Column": "holds children, no strings of its own",
+    "Row": "holds children, no strings of its own",
+    "Stack": "holds children, no strings of its own",
+    "Grid": "holds children, no strings of its own",
+    "Gallery": "holds children, no strings of its own",
+    "Pager": "id names an element, which DivKit never evaluates",
+    "Indicator": "pager id and colors only",
+    "Switch": "variable name and nothing shown",
+    "Slider": "variable name, bounds, and colors",
+    "Separator": "a color",
+    "Spacer": "sizes only",
+    "Map": "its strings ride in custom_props, which the shells read as raw JSON",
+    "SignOut": "the screen is percent-encoded into the action URL, log_id is fixed",
+    "RequestLocation": "variable and action are percent-encoded, log_id is fixed",
+    "Share": "the text is percent-encoded into the action URL, log_id is fixed",
+    "OpenUrl": "the URL is percent-encoded into the action URL, log_id is fixed",
+    "Haptic": "names one of five feedbacks",
+}
+
+
+def _strings(value: object) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in cast("dict[str, object]", value).values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in cast("list[object]", value):
+            yield from _strings(item)
+
+
+@pytest.mark.parametrize("name", sorted(EVALUATED))
+def test_no_component_hands_someone_elses_text_to_the_evaluator(name: str) -> None:
+    arrived = False
+    for text in _strings(lt.render(EVALUATED[name])):
+        if "secret" not in text:
+            continue
+        arrived = True
+        # The opener reaches the shells only inside the marker, which
+        # evaluates to it; what is left must open nothing.
+        assert POISON not in text.replace(MARKER, "")
+
+    assert arrived, f"{name} never put the string in the payload at all"
+
+
+def test_every_renderable_component_is_either_escaped_or_excused() -> None:
+    from latawiec import components
+
+    renderable = {
+        name
+        for name, value in vars(components).items()
+        if not name.startswith("_")
+        and isinstance(value, type)
+        and (hasattr(value, "_build") or hasattr(value, "to_div_action"))
+        and value is not components.Component
+    }
+
+    assert renderable == set(EVALUATED) | set(NOT_EVALUATED)
+
+
+def test_a_map_label_stays_raw_because_the_shells_read_it_as_json() -> None:
+    # custom_props never reaches DivKit's evaluator, so an escape here
+    # would draw a backslash on the pin.
+    card = lt.render(lt.Map(52.2297, 21.0122, markers=(lt.Marker(52.2, 21.0, "@{here}"),)))
+
+    props = card["card"]["states"][0]["div"]["custom_props"]
+    assert props["markers"][0]["label"] == "@{here}"

@@ -34,6 +34,9 @@ jobs:
       - run: ./gradlew :app:assembleDebug --no-daemon
       - run: ./gradlew :app:assembleRelease --no-daemon
       - run: ./gradlew :app:lintDebug --no-daemon
+      # Among them, the one that puts the Python DSL's escaping through
+      # DivKit's own evaluator: a JVM run is the only place that reaches it.
+      - run: ./gradlew :app:testDebugUnitTest --no-daemon
       # The instrumentation tests need a device, which this job has none of,
       # but nothing else here compiles them — without this they rot quietly.
       - run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon
