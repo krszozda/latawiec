@@ -60,7 +60,8 @@ Components:
   the platform has (MapKit on iOS, a tile view on Android), so it costs no
   dependency and no API key and the two look different by default; `tiles`
   is an XYZ template ("https://host/{z}/{x}/{y}.png") both shells then draw
-  instead. The Android fallback is OpenStreetMap's own server, a courtesy
+  instead, and has to be an http(s) URL carrying all three placeholders.
+  The Android fallback is OpenStreetMap's own server, a courtesy
   with a usage policy — ship a real app pointing at your own
 - Grid(*children, columns=N)  # fixed columns, row by row
 - Pager(*children, id=None, spacing=None) + Indicator(pager=id)  # swipeable
@@ -78,6 +79,10 @@ Components:
 
 Variables bound by controls are hoisted to the card, so any component can read
 them: Text("@{dark}"), Text("Size: @{size}"). Submit sends string variables.
+Every name in a send= has to be declared somewhere on the same screen — by a
+control, or by a SetVariable/RequestLocation on it — or render() refuses the
+screen: DivKit evaluates the action's URL at tap time, and an undeclared name
+makes that evaluation fail, leaving a button that silently does nothing.
 
 Styling — every component takes style=Style(...):
 - Style(padding, margin, width, height, background, corner_radius, border,

@@ -916,6 +916,16 @@ class Map(Component):
             raise ValueError(f"longitude {self.longitude} is outside -180..180")
         if not 1 <= self.zoom <= 20:
             raise ValueError(f"zoom {self.zoom} is outside 1..20")
+        if self.tiles is not None:
+            # The Android shell builds a real HTTP request out of this, and
+            # its client rejects anything else by throwing mid-draw.
+            if not self.tiles.startswith(("http://", "https://")):
+                raise ValueError(f"tiles {self.tiles!r} is not an http(s) URL")
+            # A template without the three placeholders asks one server for
+            # one tile forever, which looks like a map that will not load.
+            missing = [hole for hole in ("{z}", "{x}", "{y}") if hole not in self.tiles]
+            if missing:
+                raise ValueError(f"tiles {self.tiles!r} never substitutes {missing[0]}")
 
     def _build(self) -> dv.Div:
         # DivKit has no map, so the shells render this custom type
@@ -1050,12 +1060,22 @@ def _action_variables(node: Component) -> list[tuple[str, ScreenVariable]]:
     ]
 
 
+def _sent_variables(node: Component) -> tuple[str, ...]:
+    """Variables an action reads at tap time, which the card has to declare."""
+    if not isinstance(node, Button):
+        return ()
+    return tuple(
+        name for tap in _taps(node) if isinstance(tap, Submit | Unlock) for name in tap.send
+    )
+
+
 def _screen_variables(root: Component) -> list[ScreenVariable]:
     # DivKit scopes a variable declared on an element to that element and its
     # descendants, so a control's variable is hoisted to the card, where
     # sibling expressions like Text("@{name}") can read it.
     declared: dict[str, ScreenVariable] = {}
     from_actions: dict[str, ScreenVariable] = {}
+    sent: list[str] = []
     stack = [root]
     while stack:
         node = stack.pop()
@@ -1066,12 +1086,20 @@ def _screen_variables(root: Component) -> list[ScreenVariable]:
                 )
         for name, variable in _action_variables(node):
             from_actions.setdefault(name, variable)
+        sent.extend(_sent_variables(node))
         if isinstance(node, _Container):
             stack.extend(reversed(node.children))
     # An action aimed at a control's own variable (a fix dropped into a
     # search box) writes into that declaration instead of fighting it.
     for name, variable in from_actions.items():
         declared.setdefault(name, variable)
+    missing = [name for name in sent if name not in declared]
+    if missing:
+        raise ValueError(
+            f"an action on this screen sends {missing[0]!r}, which nothing on it "
+            "declares: the tap would evaluate to nothing and silently do nothing "
+            "— bind it to a control, or write it first with SetVariable"
+        )
     return list(declared.values())
 
 
