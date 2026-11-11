@@ -79,6 +79,10 @@ class MapView(context: Context, private val http: OkHttpClient) : View(context) 
      *  frame would hammer the tile server for the rest of the session. */
     private val refused = mutableSetOf<String>()
 
+    /** A template the HTTP client will not take at all, remembered so the
+     *  refusal is noticed once instead of once per tile. */
+    private var brokenTemplate: String? = null
+
     private val density = resources.displayMetrics.density
     private val pinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D32F2F") }
     private val pinStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -293,19 +297,27 @@ class MapView(context: Context, private val http: OkHttpClient) : View(context) 
     }
 
     private fun request(key: String, x: Int, y: Int) {
-        if (key in pending || key in refused) return
+        if (key in pending || key in refused || template == brokenTemplate) return
         val url = template
             .replace("{z}", zoom.toString())
             .replace("{x}", x.toString())
             .replace("{y}", y.toString())
-        val call = http.newCall(
+        val request = try {
             Request.Builder()
                 .url(url)
                 // OpenStreetMap's policy asks who is calling; an app on its
                 // own tile server can say whatever it likes.
                 .header("User-Agent", "Latawiec-Shell")
-                .build(),
-        )
+                .build()
+        } catch (e: IllegalArgumentException) {
+            // The client throws on anything that is not an http(s) URL, and
+            // this runs while a frame is being drawn: a server that sends a
+            // broken template would otherwise take the app down with it.
+            Log.w(MAP_TAG, "tile template $template is not a URL: $e")
+            brokenTemplate = template
+            return
+        }
+        val call = http.newCall(request)
         pending[key] = call
         call.enqueue(
             object : Callback {
