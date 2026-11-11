@@ -1,11 +1,12 @@
 package io.github.krszozda.latawiec
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.location.Location
 import android.location.LocationManager
-import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -97,6 +98,10 @@ class LocationTest {
         runCatching { manager.removeTestProvider(LocationManager.GPS_PROVIDER) }
     }
 
+    // The two 1s are POWER_USAGE_LOW and ACCURACY_FINE. Their named
+    // constants live in ProviderProperties, which is API 31, and the shell
+    // supports 26.
+    @SuppressLint("WrongConstant")
     @Test
     fun aFixLandsInTheScreenVariableAndReachesTheServer() {
         allowLocation()
@@ -110,7 +115,7 @@ class LocationTest {
         context.startActivity(
             Intent(context, MainActivity::class.java)
                 .setAction(Intent.ACTION_VIEW)
-                .setData(Uri.parse("latawiec://where"))
+                .setData("latawiec://where".toUri())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 .putExtra("serverUrl", SERVER),
         )

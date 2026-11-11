@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
@@ -30,6 +29,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.edit
+import androidx.core.graphics.drawable.toDrawable
+import androidx.core.graphics.toColorInt
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.messaging.FirebaseMessaging
@@ -310,7 +312,7 @@ class MainActivity : AppCompatActivity() {
                 val url = input.text.toString().trim().trimEnd('/')
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     getSharedPreferences("latawiec-config", MODE_PRIVATE)
-                        .edit().putString("serverUrl", url).apply()
+                        .edit { putString("serverUrl", url) }
                 }
                 // Rebuilds the activity so the lazy serverUrl re-resolves;
                 // a rejected value simply asks again.
@@ -844,7 +846,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun tintBar(accent: String) {
         val color = try {
-            Color.parseColor(accent)
+            accent.toColorInt()
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "theme accent $accent is not a color")
             return
@@ -886,7 +888,7 @@ class MainActivity : AppCompatActivity() {
                             return
                         }
                         stackHost.post {
-                            if (!isDestroyed) item.icon = BitmapDrawable(resources, bitmap)
+                            if (!isDestroyed) item.icon = bitmap.toDrawable(resources)
                         }
                     }
                 }

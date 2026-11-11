@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import androidx.core.content.edit
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -48,14 +49,14 @@ class TokenStore(context: Context) {
             cipher.init(Cipher.ENCRYPT_MODE, key())
             val iv = Base64.encodeToString(cipher.iv, Base64.NO_WRAP)
             val encrypted = Base64.encodeToString(cipher.doFinal(token.toByteArray()), Base64.NO_WRAP)
-            prefs.edit().putString(PREF_TOKEN, "$iv:$encrypted").apply()
+            prefs.edit { putString(PREF_TOKEN, "$iv:$encrypted") }
         } catch (e: Exception) {
             Log.w(TAG, "token was not saved: $e")
         }
     }
 
     fun clear() {
-        prefs.edit().remove(PREF_TOKEN).apply()
+        prefs.edit { remove(PREF_TOKEN) }
     }
 
     private fun key(): SecretKey {

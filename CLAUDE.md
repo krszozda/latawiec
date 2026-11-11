@@ -21,7 +21,10 @@ and `shell-ios/`.
 - Feature work happens on branches and lands via PR; the maintainer merges.
 - Must pass before pushing (run in `sdk-python/`):
   `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run pytest`
-- When `shell-android/` changed, it must also build: `./gradlew :app:assembleDebug`.
+- When `shell-android/` changed, it must also build and pass lint:
+  `./gradlew :app:assembleDebug :app:lintDebug`. Lint fails on warnings too;
+  a finding is fixed, or disabled in the `lint` block with the reason, never
+  left to be scrolled past.
 - When `shell-ios/` changed, it must also build: `xcodegen generate && xcodebuild
   -project LatawiecShell.xcodeproj -scheme LatawiecShell -destination
   'generic/platform=iOS Simulator' build` in `shell-ios/`. The UI tests

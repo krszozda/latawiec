@@ -2,6 +2,7 @@ package io.github.krszozda.latawiec
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import java.io.File
 import java.security.MessageDigest
 import org.json.JSONObject
@@ -21,7 +22,7 @@ class ScreenCache(context: Context) {
 
     /** The last manifest the shell saw; offline starts boot from it. */
     fun storeManifest(manifest: String) {
-        prefs.edit().putString("manifest", manifest).apply()
+        prefs.edit { putString("manifest", manifest) }
     }
 
     fun loadManifest(): String? = prefs.getString("manifest", null)
@@ -45,7 +46,7 @@ class ScreenCache(context: Context) {
         if (version == known) return
         dir.deleteRecursively()
         generation++
-        prefs.edit().putString("version", version).apply()
+        prefs.edit { putString("version", version) }
     }
 
     fun load(name: String): Entry? {

@@ -1,5 +1,6 @@
 package io.github.krszozda.latawiec
 
+import android.annotation.SuppressLint
 import android.net.Uri
 import android.util.Log
 import android.util.TypedValue
@@ -38,6 +39,10 @@ private const val NOT_AUTHORIZED = 4401
  * every stacked screen keeps its socket, so the whole stack live-reloads;
  * in production the screen renders from the cache and revalidates.
  */
+// The shell has no XML layouts: a screen is built in code and handed its
+// host, so the (Context, AttributeSet) constructors tooling looks for
+// would have nothing to hand it.
+@SuppressLint("ViewConstructor")
 class ScreenView(
     private val host: MainActivity,
     val name: String,
