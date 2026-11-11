@@ -285,16 +285,23 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // its own cache, hiding a redeployed manifest behind a stale body.
         request.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            let http = response as? HTTPURLResponse
+            // Only a 200 carries a manifest. An error page — a proxy's, or
+            // the server's own mid-redeploy — is not one, and it must not
+            // shadow the cached copy an offline boot runs on either.
+            let served = http?.statusCode == 200 ? data : nil
+            let fresh = served.flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
             // Offline boot runs on the last manifest the shell saw.
-            let raw = data ?? ScreenCache.shared.loadManifest()
-            let manifest = raw.flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
-            let fingerprint = (response as? HTTPURLResponse)?
-                .value(forHTTPHeaderField: "X-Latawiec-Manifest")
+            let raw = fresh != nil ? served : ScreenCache.shared.loadManifest()
+            let manifest = fresh ?? raw.flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
+            let fingerprint = http?.value(forHTTPHeaderField: "X-Latawiec-Manifest")
             DispatchQueue.main.async {
                 guard let self else { return }
                 // A redeploy blip mid-session must not nuke the chrome; a
                 // cleared hash retries on the next fingerprint/foreground.
-                if manifest == nil, raw == nil, self.manifestApplied {
+                // Anything short of a served, readable manifest leaves the
+                // tabs — and the stack the user is in — exactly as they are.
+                if fresh == nil, self.manifestApplied {
                     self.manifestHash = nil
                     return
                 }
