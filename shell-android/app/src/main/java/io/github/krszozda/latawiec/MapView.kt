@@ -14,6 +14,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import androidx.core.graphics.toColorInt
 import com.yandex.div.core.DivCustomContainerViewAdapter
 import com.yandex.div.core.state.DivStatePath
 import com.yandex.div.core.view2.Div2View
@@ -84,7 +85,7 @@ class MapView(context: Context, private val http: OkHttpClient) : View(context) 
     private var brokenTemplate: String? = null
 
     private val density = resources.displayMetrics.density
-    private val pinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D32F2F") }
+    private val pinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = "#D32F2F".toColorInt() }
     private val pinStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
@@ -102,7 +103,7 @@ class MapView(context: Context, private val http: OkHttpClient) : View(context) 
         style = Paint.Style.STROKE
         strokeWidth = 3f * density
     }
-    private val emptyPaint = Paint().apply { color = Color.parseColor("#E8EAED") }
+    private val emptyPaint = Paint().apply { color = "#E8EAED".toColorInt() }
 
     /** Reused: onDraw runs per frame and allocating here would churn. */
     private val tileRect = RectF()

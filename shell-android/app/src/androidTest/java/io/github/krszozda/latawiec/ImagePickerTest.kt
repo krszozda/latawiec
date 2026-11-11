@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -54,7 +56,7 @@ class ImagePickerTest {
         ) ?: return
         seeded = uri
         context.contentResolver.openOutputStream(uri)?.use { stream ->
-            val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            val bitmap = createBitmap(64, 64)
             bitmap.eraseColor(Color.BLUE)
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
         }
@@ -66,7 +68,7 @@ class ImagePickerTest {
         context.startActivity(
             Intent(context, MainActivity::class.java)
                 .setAction(Intent.ACTION_VIEW)
-                .setData(Uri.parse("latawiec://photo"))
+                .setData("latawiec://photo".toUri())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 .putExtra("serverUrl", "http://10.0.2.2:8001"),
         )

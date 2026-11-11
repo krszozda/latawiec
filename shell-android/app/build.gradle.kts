@@ -105,6 +105,23 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    lint {
+        warningsAsErrors = true
+        checkTestSources = true
+        // CI reads the log, not an HTML report it throws away.
+        textReport = true
+        disable += setOf(
+            // These two fail the build the day anyone publishes a new
+            // version of anything, which says nothing about this code. A
+            // dependency bump is its own PR, with the APK weighed in it.
+            "AndroidGradlePluginVersion",
+            "GradleDependency",
+            // The shell's launcher icon is a placeholder every real app
+            // replaces (docs/shipping.md), so its square is not a defect.
+            "IconLauncherShape",
+        )
+    }
 }
 
 kotlin {
@@ -115,6 +132,9 @@ kotlin {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // Transitive already, at the version the graph resolves to anyway;
+    // declared because the shell calls its extensions directly.
+    implementation("androidx.core:core-ktx:1.16.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

@@ -1,7 +1,7 @@
 package io.github.krszozda.latawiec
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -38,7 +38,7 @@ class CameraTest {
         context.startActivity(
             Intent(context, MainActivity::class.java)
                 .setAction(Intent.ACTION_VIEW)
-                .setData(Uri.parse("latawiec://shoot"))
+                .setData("latawiec://shoot".toUri())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 .putExtra("serverUrl", SERVER),
         )
