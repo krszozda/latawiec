@@ -112,7 +112,7 @@ What it lacks is mileage: no third-party apps in production yet.
 
 ## Why so small
 
-The release APK is **2.5 MB**, kept under a 3 MB CI budget — against 17.3 MB for
+The release APK is **2.9 MB**, kept under a 3 MB CI budget — against 17.3 MB for
 Flutter and 33.5 MB for React Native in
 [SWMansion's same-app comparison](https://swmansion.com/blog/we-built-the-same-app-in-flutter-and-react-native-here-s-what-we-found/)
 (2026). The
