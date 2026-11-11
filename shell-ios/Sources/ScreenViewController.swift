@@ -81,6 +81,9 @@ final class ScreenViewController: UIViewController {
     private var unlockContext: LAContext?
     private var purchaseWatcher: Task<Void, Never>?
 
+    /// Handler of the latest buy tap.
+    private var purchaseAction: String?
+
     /// Variables the shell wrote itself — a picked photo, a location fix.
     /// A re-render resets the card's data and would drop them, so they are
     /// kept here and written back after every render, which is also how the
@@ -654,10 +657,17 @@ extension ScreenViewController: PHPickerViewControllerDelegate {
     /// device, a redeemed code: StoreKit delivers all of them here and
     /// nowhere else, so a shell that does not listen loses them.
     private func watchForPurchases(action: String) {
+        // Read at delivery time, not captured here: a screen with two buy
+        // buttons would otherwise hand everything the store recovers to
+        // whichever one was tapped first. The Android shell does the same.
+        purchaseAction = action
         guard purchaseWatcher == nil else { return }
         purchaseWatcher = Task { [weak self] in
             for await purchase in Store.deliveries() {
-                await MainActor.run { self?.deliver(purchase, to: action) }
+                await MainActor.run {
+                    guard let self, let latest = self.purchaseAction else { return }
+                    self.deliver(purchase, to: latest)
+                }
             }
         }
     }
