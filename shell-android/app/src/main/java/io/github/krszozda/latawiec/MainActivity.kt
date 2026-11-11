@@ -1,10 +1,7 @@
 package io.github.krszozda.latawiec
 
 import android.Manifest
-import android.app.Activity
-import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -13,61 +10,38 @@ import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
-import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK
-import android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL
-import android.hardware.biometrics.BiometricPrompt
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.CancellationSignal
 import android.os.LocaleList
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.util.Log
-import android.util.TypedValue
-import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.messaging.FirebaseMessaging
-import com.yandex.div.DivDataTag
 import com.yandex.div.coil.CoilDivImageLoader
 import com.yandex.div.core.Div2Context
 import com.yandex.div.core.DivActionHandler
 import com.yandex.div.core.DivConfiguration
 import com.yandex.div.core.DivViewFacade
-import com.yandex.div.core.player.DivPlayerFactory
-import com.yandex.div.core.player.DivPlayerView
-import com.yandex.div.core.view2.Div2View
-import com.yandex.div.data.DivParsingEnvironment
-import com.yandex.div.json.ParsingErrorLogger
 import com.yandex.div.json.expressions.ExpressionResolver
 import com.yandex.div2.DivAction
-import com.yandex.div2.DivData
 import com.yandex.div2.DivSightAction
-import java.io.File
 import java.io.IOException
-import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import okhttp3.Call
@@ -79,29 +53,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 import okio.BufferedSink
 import okio.source
 import org.json.JSONException
 import org.json.JSONObject
 
 private const val TAG = "Latawiec"
-private const val RECONNECT_DELAY_MS = 1_000L
-private const val RECONNECT_DELAY_MAX_MS = 30_000L
 private const val PUSH_ANIMATION_MS = 250L
-
-/** How long a RequestLocation waits for a fix before giving up on one. */
-private const val FIX_TIMEOUT_MS = 10_000L
-
-/** Both shells word it the same way, so the docs can promise it. */
-private const val NO_LOCK = "This device has no lock set up"
-
-/** How long a camera shot stays in the cache before it is swept. */
-private const val PHOTO_KEEP_MS = 24 * 60 * 60 * 1000L
-
-/** The server's WebSocket close code for a missing or rejected token. */
-private const val NOT_AUTHORIZED = 4401
 
 /** How often a held-open socket proves it is still there. */
 private const val SOCKET_PING_SECONDS = 20L
@@ -111,7 +69,7 @@ private val OPENABLE_SCHEMES = setOf("http", "https", "mailto", "tel", "sms")
 
 class MainActivity : AppCompatActivity() {
 
-    private val http = OkHttpClient()
+    internal val http = OkHttpClient()
 
     /**
      * Pings keep a live screen honest: a socket that died without a close —
@@ -125,7 +83,7 @@ class MainActivity : AppCompatActivity() {
      * part of that. newBuilder shares the pool and dispatcher, so this
      * costs nothing.
      */
-    private val sockets = http.newBuilder()
+    internal val sockets = http.newBuilder()
         .pingInterval(SOCKET_PING_SECONDS, TimeUnit.SECONDS)
         .build()
 
@@ -134,22 +92,22 @@ class MainActivity : AppCompatActivity() {
     // the shell at its own server with this extra. A build with no baked-in
     // URL (the generic try-it-out APK) falls back to the address the user
     // typed on first start.
-    private val serverUrl by lazy {
+    internal val serverUrl by lazy {
         intent.getStringExtra("serverUrl").takeIf { BuildConfig.DEBUG }
             ?: BuildConfig.SERVER_URL.ifEmpty {
                 getSharedPreferences("latawiec-config", MODE_PRIVATE)
                     .getString("serverUrl", "").orEmpty()
             }
     }
-    private lateinit var div2Context: Div2Context
+    internal lateinit var divContext: Div2Context
     private lateinit var stackHost: FrameLayout
     private lateinit var bottomBar: BottomNavigationView
     private lateinit var tokenStore: TokenStore
-    private lateinit var screenCache: ScreenCache
+    internal lateinit var screenCache: ScreenCache
     private var token: String? = null
 
     /** Dev keeps the live-reload socket; production fetches and caches. */
-    private var devMode = true
+    internal var devMode = true
 
     /** Screen from the manifest to show when the server answers 401/4401. */
     private var loginScreen: String? = null
@@ -177,13 +135,19 @@ class MainActivity : AppCompatActivity() {
     private var pendingPhotoUri: Uri? = null
 
     /** Which player this build carries, for the video screen to publish. */
-    private var videoPlayer = "system"
+    private val video by lazy { videoPlayer(this) }
+
+    // Lazy rather than built in onCreate: a field initializer would hand
+    // them an activity with no context yet, and onDestroy runs even when
+    // onCreate did not get far enough to build them.
+    private val photos by lazy { PhotoCache(this) }
+    private val locations by lazy { LocationFinder(this) }
+    private val unlocks by lazy { DeviceUnlock(this) }
 
     /** The submit waiting behind the device's own unlock screen. */
     private var pendingUnlock: Pair<String, JSONObject>? = null
     private var store: StoreFront? = null
     private var purchaseAction: String? = null
-    private var unlockSignal: CancellationSignal? = null
     private val confirmCredential =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val ask = pendingUnlock
@@ -219,8 +183,6 @@ class MainActivity : AppCompatActivity() {
     )
 
     private var pendingLocation: LocationAsk? = null
-    private val fixListeners = mutableListOf<LocationListener>()
-    private var fixTimeout: Runnable? = null
     private val askLocation =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
             // Coarse alone is a yes: a city-level fix still answers "where am I".
@@ -241,15 +203,16 @@ class MainActivity : AppCompatActivity() {
         screenCache = ScreenCache(this)
         val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
-            .divPlayerFactory(playerFactory())
+            .divPlayerFactory(video.factory)
             .divCustomContainerViewAdapter(MapViewAdapter(http))
             .build()
-        div2Context = Div2Context(this, configuration)
+        divContext = Div2Context(this, configuration)
         bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
         stackHost = FrameLayout(this).apply {
             // So the video and purchase tests can tell which build this
             // is, instead of passing on whichever fallback they meet.
-            contentDescription = "player:$videoPlayer store:${if (billingBuilt()) "play" else "none"}"
+            contentDescription =
+                "player:${video.name} store:${if (billingBuilt()) "play" else "none"}"
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -363,35 +326,6 @@ class MainActivity : AppCompatActivity() {
         if (manifestApplied) openDeepLink(screen) else pendingDeepLink = screen
     }
 
-    /** A deep link carries the screen in its URI, a push tap in an extra. */
-    private fun linkedScreen(intent: Intent): String? =
-        intent.data?.let(::screenPath) ?: intent.getStringExtra("screen")?.let(::rawScreenPath)
-
-    /**
-     * Maps a deep-link URI to a screen path. App Links carry the screen in
-     * the https path; a custom scheme starts it at the host, so
-     * "latawiec://product/42" opens the screen "product/42". The link is
-     * untrusted: one whose decoded segments could reshape the request path
-     * they end up in is dropped.
-     */
-    private fun screenPath(uri: Uri): String? {
-        val path = uri.path.orEmpty().trim('/')
-        val screen = when (uri.scheme?.lowercase()) {
-            "http", "https" -> path
-            else -> listOf(uri.host.orEmpty(), path).filter(String::isNotEmpty).joinToString("/")
-        }
-        return rawScreenPath(screen)
-    }
-
-    /** The same segment rules for a bare path (a push payload's "screen"). */
-    private fun rawScreenPath(raw: String): String? {
-        val screen = raw.trim('/')
-        if (screen.isEmpty()) return null
-        val segments = screen.split("/")
-        if (segments.any { it.isEmpty() || it == "." || it == ".." }) return null
-        return screen
-    }
-
     /** A tab root selects its tab; any other screen pushes onto the stack. */
     private fun openDeepLink(screen: String) {
         val tab = tabRoots.indexOf(screen)
@@ -406,6 +340,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Gates the poll ticks: a backgrounded app must not keep fetching. */
     private var resumed = false
+
+    internal fun isPolling(screen: ScreenView): Boolean =
+        resumed && screens.lastOrNull() == screen
 
     override fun onResume() {
         super.onResume()
@@ -426,8 +363,8 @@ class MainActivity : AppCompatActivity() {
         // Built on the first purchase, so a shell that never sold anything
         // has nothing to close.
         store?.close()
-        unlockSignal?.cancel()
-        cancelFix()
+        unlocks.cancel()
+        locations.cancel()
         screens.forEach {
             it.stop()
             // VideoView lets go of its MediaPlayer with the surface;
@@ -456,7 +393,7 @@ class MainActivity : AppCompatActivity() {
     private fun push(name: String, animated: Boolean) {
         // The covered screen must not keep playing behind the new one.
         screens.lastOrNull()?.holdVideos()
-        val screen = ScreenView(name)
+        val screen = ScreenView(this, name)
         screens.addLast(screen)
         stackHost.addView(screen, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         if (animated) {
@@ -483,329 +420,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * One screen of the stack: its own DivView, spinner, and transport. In dev
-     * every stacked screen keeps its socket, so the whole stack live-reloads;
-     * in production the screen renders from the cache and revalidates.
-     */
-    private inner class ScreenView(val name: String) : FrameLayout(this@MainActivity) {
-
-        private val divView = Div2View(div2Context)
-        private val spinner = ProgressBar(context)
-
-        // Routed values ride in the name; encoding each segment keeps them
-        // from reshaping the request path (iOS encodes the same way).
-        private val encodedName = name.split("/").joinToString("/", transform = Uri::encode)
-        private var socket: WebSocket? = null
-        private var reconnectDelayMs = RECONNECT_DELAY_MS
-
-        /** Poll interval of a refresh=N screen, from its response header. */
-        private var pollSeconds: Long? = null
-
-        private val swipe = SwipeRefreshLayout(context).apply {
-            isEnabled = false
-            addView(divView)
-            // The gesture must not steal scrolls from a list that can still
-            // go up — DivKit's lists live somewhere inside the view tree.
-            setOnChildScrollUpCallback { _, _ -> canAnyScrollUp(divView) }
-            setOnRefreshListener { if (devMode) connect() else fetch() }
-        }
-
-        init {
-            // Screens stack on top of each other; without an opaque
-            // background the covered screen bleeds through.
-            val background = TypedValue()
-            context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
-            setBackgroundColor(background.data)
-            addView(swipe, LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            addView(spinner, LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER))
-        }
-
-        private fun canAnyScrollUp(view: View): Boolean {
-            if (view.canScrollVertically(-1)) return true
-            if (view is ViewGroup) {
-                for (i in 0 until view.childCount) {
-                    if (canAnyScrollUp(view.getChildAt(i))) return true
-                }
-            }
-            return false
-        }
-
-        fun start() {
-            if (devMode) connect() else fetch()
-        }
-
-        fun stop() {
-            socket?.cancel()
-        }
-
-        /** Releases DivKit resources (players included); after removal. */
-        fun cleanup() {
-            divView.cleanup()
-        }
-
-        /** An upload finished: hand its value to this screen's card. */
-        fun setVariable(name: String, value: String) {
-            divView.setVariable(name, value)?.let {
-                Log.w(TAG, "setting $name failed: $it")
-            }
-        }
-
-        /** Covered by a push: videos stop decoding but keep their intent. */
-        fun holdVideos() {
-            forEachPlayer(this) { it.hold() }
-        }
-
-        /** Back on top: autoplaying videos pick up again. */
-        fun resumeVideos() {
-            forEachPlayer(this) { it.resume() }
-        }
-
-        private fun forEachPlayer(group: ViewGroup, action: (HoldablePlayer) -> Unit) {
-            for (i in 0 until group.childCount) {
-                when (val child = group.getChildAt(i)) {
-                    is DivPlayerView ->
-                        (child.getAttachedPlayer() as? HoldablePlayer)?.let(action)
-                    is ViewGroup -> forEachPlayer(child, action)
-                }
-            }
-        }
-
-        /**
-         * The screen arrives over this socket on connect. The server holds it
-         * open; when it restarts (`uvicorn --reload` on every code change) the
-         * socket drops and the reconnect delivers the fresh screen — that is
-         * the live-reload loop.
-         *
-         * Callbacks of a superseded socket can still fire (cancel() itself
-         * triggers onFailure), so each one acts only when its webSocket is
-         * still the one in the `socket` field.
-         */
-        private fun connect() {
-            socket?.cancel()
-            val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$encodedName"
-            socket = sockets.newWebSocket(
-                authorized(Request.Builder().url(url)).build(),
-                object : WebSocketListener() {
-                    override fun onMessage(webSocket: WebSocket, text: String) {
-                        if (webSocket == socket) render(text)
-                    }
-
-                    // OkHttp does not finish the close handshake by itself:
-                    // without this close() call onClosed never fires and the
-                    // reload loop stalls.
-                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                        webSocket.close(1000, null)
-                    }
-
-                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        if (webSocket != socket) return
-                        if (code == NOT_AUTHORIZED) {
-                            post { if (!isDestroyed) onUnauthorized() }
-                        } else {
-                            later { connect() }
-                        }
-                    }
-
-                    override fun onFailure(
-                        webSocket: WebSocket,
-                        t: Throwable,
-                        response: Response?,
-                    ) {
-                        Log.w(TAG, "socket to $url failed: $t")
-                        if (webSocket == socket) later { connect() }
-                    }
-                },
-            )
-        }
-
-        /**
-         * Production path: render the last-known screen from disk right away,
-         * then revalidate over GET and swap in the fresh payload — unless the
-         * cached copy is "static", which lives until the manifest version
-         * moves.
-         */
-        private fun fetch() {
-            // A response that outlives a sign-out wipe must not store.
-            val asOf = screenCache.generation
-            // Mid-pull the content is already on screen: rendering the
-            // cached copy would snap the indicator shut within a frame.
-            val cached = if (swipe.isRefreshing) null else screenCache.load(name)
-            if (cached != null) {
-                render(cached.payload)
-                when {
-                    cached.policy == "static" -> return
-                    // A cached live screen subscribes straight away — the
-                    // socket's backoff covers an unreachable server, and its
-                    // first message is the fresh render.
-                    cached.policy == "live" -> {
-                        post { if (!isDestroyed && isAttachedToWindow) connect() }
-                        return
-                    }
-                    // The interval from the cache keeps a polled screen's
-                    // rhythm even when the revalidation fetch fails.
-                    cached.policy.startsWith("poll:") ->
-                        pollSeconds = cached.policy.substringAfter(':').toLongOrNull()
-                }
-            }
-            val request =
-                authorized(Request.Builder().url("$serverUrl/screens/$encodedName")).build()
-            http.newCall(request).enqueue(
-                object : Callback {
-                    override fun onFailure(call: Call, e: IOException) {
-                        // With a cached copy on screen this is offline mode; a
-                        // blank screen keeps retrying on the socket's backoff,
-                        // and a polled screen keeps its rhythm.
-                        Log.w(TAG, "screen $name fetch failed: $e")
-                        post { swipe.isRefreshing = false }
-                        if (cached == null) later { fetch() } else schedulePoll()
-                    }
-
-                    override fun onResponse(call: Call, response: Response) {
-                        response.use {
-                            if (it.code == 401) {
-                                post { if (!isDestroyed) onUnauthorized() }
-                                return
-                            }
-                            if (!it.isSuccessful) {
-                                Log.w(TAG, "screen $name answered HTTP ${it.code}")
-                                post { swipe.isRefreshing = false }
-                                if (cached == null) later { fetch() } else schedulePoll()
-                                return
-                            }
-                            val payload = it.body?.string() ?: return
-                            val header = it.header("Cache-Control").orEmpty()
-                            val live = it.header("X-Latawiec-Live") != null
-                            val refreshSeconds =
-                                it.header("X-Latawiec-Refresh")?.toLongOrNull()
-                            val policy = when {
-                                "no-store" in header -> "no-store"
-                                "immutable" in header -> "static"
-                                live -> "live"
-                                refreshSeconds != null -> "poll:$refreshSeconds"
-                                else -> "swr"
-                            }
-                            if (policy != "no-store") {
-                                screenCache.store(name, policy, payload, asOf)
-                            }
-                            if (it.header("X-Latawiec-Refreshable") != null) {
-                                post { swipe.isEnabled = true }
-                            }
-                            render(payload)
-                            it.header("X-Latawiec-Manifest")?.let { seen ->
-                                // The chrome changed server-side (a tab
-                                // appeared?); refetch once, not per screen.
-                                // Compared on main: manifestHash lives there.
-                                post {
-                                    if (!isDestroyed && manifestApplied &&
-                                        seen != manifestHash
-                                    ) {
-                                        manifestHash = seen
-                                        fetchManifest()
-                                    }
-                                }
-                            }
-                            if (live) {
-                                // A live screen subscribes after its first
-                                // render; every app.refresh() lands here.
-                                post { if (!isDestroyed && isAttachedToWindow) connect() }
-                            } else {
-                                pollSeconds = refreshSeconds
-                                schedulePoll()
-                            }
-                        }
-                    }
-                },
-            )
-        }
-
-        /**
-         * Polled screens refetch on their interval, but only while truly on
-         * display: a covered or backgrounded screen stops ticking and
-         * resumePolling() picks it back up.
-         */
-        private fun schedulePoll() {
-            val seconds = pollSeconds ?: return
-            postDelayed(
-                {
-                    if (!isDestroyed && isAttachedToWindow &&
-                        resumed && screens.lastOrNull() == this
-                    ) {
-                        fetch()
-                    }
-                },
-                seconds * 1000,
-            )
-        }
-
-        /** Back on top (pop, or app foregrounded): refetch and tick again. */
-        fun resumePolling() {
-            if (pollSeconds != null && isAttachedToWindow) fetch()
-        }
-
-        /** Backs off while the server stays away; a delivered screen resets it. */
-        private fun later(retry: () -> Unit) {
-            postDelayed(
-                { if (!isDestroyed && isAttachedToWindow) retry() },
-                reconnectDelayMs,
-            )
-            reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_DELAY_MAX_MS)
-        }
-
-        private fun render(payload: String) {
-            reconnectDelayMs = RECONNECT_DELAY_MS
-            val data = parseCard(JSONObject(payload))
-            post {
-                if (!isDestroyed) {
-                    divView.setData(data, DivDataTag(name))
-                    spinner.visibility = View.GONE
-                    swipe.isRefreshing = false
-                }
-            }
-        }
-    }
-
-    /** Cheap enough for onCreate: it does not build a billing client. */
-    private fun billingBuilt(): Boolean =
-        runCatching { Class.forName("io.github.krszozda.latawiec.PlayStore") }.isSuccess
-
-    /** Present only in a -PwithBilling build; see [StoreFront]. */
-    private fun storeFront(): StoreFront? = try {
-        Class.forName("io.github.krszozda.latawiec.PlayStore")
-            .getDeclaredConstructor(Activity::class.java)
-            .newInstance(this) as StoreFront
-    } catch (e: ReflectiveOperationException) {
-        null
-    } catch (e: LinkageError) {
-        Log.w(TAG, "billing is present but unusable: $e")
-        null
-    }
-
-    /**
-     * A -PwithVideo build carries ExoPlayer; a default one does not, and
-     * referring to the class directly would not compile there. Reflection
-     * is what keeps the two builds one source tree.
-     */
-    private fun playerFactory(): DivPlayerFactory = try {
-        (
-            Class.forName("io.github.krszozda.latawiec.Media3PlayerFactory")
-                .getDeclaredConstructor(Context::class.java)
-                .newInstance(this) as DivPlayerFactory
-            ).also { videoPlayer = "media3" }
-    } catch (e: ReflectiveOperationException) {
-        SystemPlayerFactory()
-    } catch (e: LinkageError) {
-        // The class is there but its libraries are not: a half-shrunk
-        // build, which would otherwise crash instead of falling back.
-        Log.w(TAG, "Media3 is present but unusable: $e")
-        SystemPlayerFactory()
-    }
-
-    /**
      * Play's flow in front of a submit: the action carries the purchase
      * token, and the server decides what it is worth.
      */
     private fun buy(product: String, action: String, consumable: Boolean) {
-        val store = store ?: storeFront()?.also { store = it }
+        val store = store ?: storeFront(this)?.also { store = it }
         if (store == null) {
             showError(STORE_NOT_BUILT)
             return
@@ -839,11 +458,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * The device's own check — a fingerprint, a face, or the passcode —
-     * in front of a submit. It gates the tap, not the server: the action
-     * POSTs like any other once the check passes.
-     */
+    /** The device's own check in front of a submit; see [DeviceUnlock]. */
     private fun unlock(url: Uri) {
         val action = url.getQueryParameter("action") ?: return
         val reason = url.getQueryParameter("reason").orEmpty()
@@ -851,116 +466,30 @@ class MainActivity : AppCompatActivity() {
         for (key in url.queryParameterNames) {
             if (key != "action" && key != "reason") values.put(key, url.getQueryParameter(key))
         }
-        // A fingerprint cannot be enrolled without a PIN behind it, so this
-        // one question answers for every method at once — and answers it
-        // before a prompt appears, which error codes cannot: asking for
-        // biometrics and the passcode together reports "no fingerprints"
-        // when the truth is that the device has no lock at all.
-        val keyguard = getSystemService(KeyguardManager::class.java)
-        if (keyguard == null || !keyguard.isDeviceSecure) {
-            showError(NO_LOCK)
-            return
-        }
-        if (Build.VERSION.SDK_INT >= 29) {
-            promptForUnlock(action, values, reason)
-            return
-        }
-        // BiometricPrompt gained the passcode fallback in API 29; before
-        // that the lock screen itself is the prompt.
-        val intent = keyguard.createConfirmDeviceCredentialIntent(reason, null)
-        if (intent == null) {
-            showError(NO_LOCK)
-            return
-        }
-        pendingUnlock = action to values
-        confirmCredential.launch(intent)
-    }
-
-    @RequiresApi(29)
-    private fun promptForUnlock(action: String, values: JSONObject, reason: String) {
-        val prompt = BiometricPrompt.Builder(this)
-            .setTitle(reason)
-            .apply {
-                if (Build.VERSION.SDK_INT >= 30) {
-                    setAllowedAuthenticators(BIOMETRIC_WEAK or DEVICE_CREDENTIAL)
-                } else {
-                    @Suppress("DEPRECATION")
-                    setDeviceCredentialAllowed(true)
-                }
-            }
-            .build()
-        val signal = CancellationSignal()
-        unlockSignal = signal
-        prompt.authenticate(
-            signal,
-            mainExecutor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(
-                    result: BiometricPrompt.AuthenticationResult,
-                ) {
-                    unlockSignal = null
-                    submit(action, values)
-                }
-
-                override fun onAuthenticationError(code: Int, message: CharSequence) {
-                    // Only this one means what NO_LOCK says; a busy sensor
-                    // or a lockout is neither, and the system dialog has
-                    // already told the user about those in its own words.
-                    unlockSignal = null
-                    if (code == BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL) {
-                        showError(NO_LOCK)
-                    } else {
-                        Log.w(TAG, "unlock error $code: $message")
-                    }
-                }
+        unlocks.ask(
+            reason,
+            passed = { submit(action, values) },
+            confirm = { intent ->
+                // The result arrives in confirmCredential, which may be a
+                // new activity by then: the ask goes into the saved state.
+                pendingUnlock = action to values
+                confirmCredential.launch(intent)
             },
+            failed = ::showError,
         )
     }
 
-    /**
-     * Every enabled provider is asked at once and the first fix wins: GPS
-     * gives the best one but indoors it never arrives, where the network
-     * provider answers in a second.
-     */
     private fun requestFix() {
         // The permission prompt can outlive this activity (a rotation, or
         // process death); without an ask to answer, subscribing would leave
         // every provider listening for the rest of the session.
-        val ask = pendingLocation ?: return
-        val manager = getSystemService(LocationManager::class.java)
-        val providers = manager?.getProviders(true).orEmpty()
-        if (manager == null || providers.isEmpty()) {
-            deliverLocation("")
-            return
-        }
-        for (provider in providers) {
-            val listener = FixListener()
-            fixListeners += listener
-            try {
-                manager.requestLocationUpdates(provider, 0L, 0f, listener, mainLooper)
-            } catch (e: SecurityException) {
-                Log.w(TAG, "location updates from $provider refused: $e")
-            }
-        }
-        val timeout = Runnable { if (pendingLocation === ask) deliverLocation("") }
-        fixTimeout = timeout
-        stackHost.postDelayed(timeout, FIX_TIMEOUT_MS)
+        if (pendingLocation == null) return
+        locations.find(::deliverLocation)
     }
 
-    /** Leaving the app drops the ask: no listeners, no late empty submit. */
-    private fun cancelFix() {
-        pendingLocation = null
-        fixTimeout?.let { stackHost.removeCallbacks(it) }
-        fixTimeout = null
-        val manager = getSystemService(LocationManager::class.java)
-        for (listener in fixListeners) manager?.removeUpdates(listener)
-        fixListeners.clear()
-    }
-
-    /** First answer (or the timeout) wins; the rest find nothing pending. */
     private fun deliverLocation(value: String) {
         val ask = pendingLocation ?: return
-        cancelFix()
+        pendingLocation = null
         if (isDestroyed) return
         // A restored ask lost its screen with the old activity, so the fix
         // lands on whichever screen is showing when it arrives.
@@ -968,31 +497,12 @@ class MainActivity : AppCompatActivity() {
         if (ask.action != null) submit(ask.action, JSONObject().put(ask.variable, value))
     }
 
-    private inner class FixListener : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            // Locale.US: a comma as the decimal separator would cut the pair
-            // into three numbers on a Polish phone.
-            deliverLocation(
-                String.format(Locale.US, "%.6f,%.6f", location.latitude, location.longitude),
-            )
-        }
-
-        // Default methods on modern SDKs, abstract back on API 26-29, where
-        // leaving them out crashes the moment the system calls one.
-        @Deprecated("Deprecated in Java")
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-
-        override fun onProviderEnabled(provider: String) = Unit
-
-        override fun onProviderDisabled(provider: String) = Unit
-    }
-
     /**
      * Hands the system camera app a file of ours to write into. A device
      * with no camera app at all says so rather than looking broken.
      */
     private fun shoot() {
-        val target = photoTarget()
+        val target = photos.target()
         if (target == null) {
             pendingPickVariable = null
             pendingPickScreen = null
@@ -1008,38 +518,6 @@ class MainActivity : AppCompatActivity() {
             pendingPickScreen = null
             pendingPhotoUri = null
             showError("This device has no camera")
-        }
-    }
-
-    /**
-     * The server has the bytes now, so our copy is litter. A gallery pick
-     * belongs to the user, not to us, and is left alone.
-     */
-    private fun discardShot(uri: Uri) {
-        if (uri.authority != "$packageName.files") return
-        val name = uri.lastPathSegment?.substringAfterLast('/') ?: return
-        File(File(cacheDir, "camera"), name).delete()
-    }
-
-    private fun photoTarget(): Uri? {
-        val dir = File(cacheDir, "camera")
-        if (!dir.exists() && !dir.mkdirs()) {
-            Log.w(TAG, "camera cache directory refused")
-            return null
-        }
-        // A shot whose upload never ran (the app died mid-flight) would
-        // otherwise sit in the cache for good.
-        val stale = System.currentTimeMillis() - PHOTO_KEEP_MS
-        dir.listFiles()?.forEach { if (it.lastModified() < stale) it.delete() }
-        return try {
-            FileProvider.getUriForFile(
-                this,
-                "$packageName.files",
-                File(dir, "shot-${System.currentTimeMillis()}.jpg"),
-            )
-        } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "camera target refused: $e")
-            null
         }
     }
 
@@ -1074,13 +552,13 @@ class MainActivity : AppCompatActivity() {
         http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    discardShot(uri)
+                    photos.discard(uri)
                     Log.w(TAG, "upload failed: $e")
                     showError("Upload failed — try again")
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    discardShot(uri)
+                    photos.discard(uri)
                     response.use {
                         if (it.code == 401) {
                             stackHost.post { if (!isDestroyed) onUnauthorized() }
@@ -1118,7 +596,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Every screen and action request carries the token and device context. */
-    private fun authorized(builder: Request.Builder): Request.Builder {
+    internal fun authorized(builder: Request.Builder): Request.Builder {
         token?.let { builder.header("Authorization", "Bearer $it") }
         builder.header("Accept-Language", LocaleList.getDefault().toLanguageTags())
         builder.header("X-Latawiec-Platform", "android")
@@ -1128,7 +606,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** A rejected token is gone for good; the login screen starts over. */
-    private fun onUnauthorized() {
+    internal fun onUnauthorized() {
         token = null
         tokenStore.clear()
         // The identity ended, so its cached screens must go with it.
@@ -1149,10 +627,15 @@ class MainActivity : AppCompatActivity() {
         showRoot(target ?: loginScreen ?: "home")
     }
 
-    private fun parseCard(payload: JSONObject): DivData {
-        val environment = DivParsingEnvironment(ParsingErrorLogger.LOG)
-        payload.optJSONObject("templates")?.let(environment::parseTemplates)
-        return DivData(environment, payload.getJSONObject("card"))
+    /**
+     * A screen was served with a manifest fingerprint: a change means the
+     * chrome moved server-side (a tab appeared?), so it is refetched once,
+     * not once per screen.
+     */
+    internal fun onManifestSeen(fingerprint: String) {
+        if (!manifestApplied || fingerprint == manifestHash) return
+        manifestHash = fingerprint
+        fetchManifest()
     }
 
     /**
