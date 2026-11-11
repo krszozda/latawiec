@@ -87,6 +87,85 @@ provisioning profile (base64), and your team id as the `IOS_*` /
 `APPLE_TEAM_ID` secrets, then run the workflow with your branding as
 inputs and download the `.ipa` artifact for Transporter.
 
+## Getting through app review
+
+Both stores have a rule against an app downloading code, and an app whose
+screens arrive over HTTP invites the question. Apple's guideline 2.5.2
+says an app may not "download, install, or execute code which introduces
+or changes features or functionality". Google Play's Device and Network
+Abuse policy forbids downloading executable code — "dex, JAR, `.so`
+files" — from any source but Play, and exempts "code that runs in a
+virtual machine or an interpreter where either provides indirect access to
+Android APIs".
+
+What crosses the wire here is a DivKit card: JSON naming view types and
+their properties. Every view class, gesture, animation and action the app
+can perform is compiled into the binary the reviewer approved; the JSON
+picks among them and fills in the text, the colors and the sizes. No dex,
+no JAR and no shared object is fetched.
+
+DivKit expressions — `Text("Hello, @{name}!")` — *are* evaluated, by an
+interpreter inside DivKit: `div-evaluable` ships a tokenizer, a parser, an
+evaluator and 316 class files in its `function` package. That is narrower
+than the webview JavaScript Play's exemption was written for, which is the
+useful thing to be able to say about it, and it is checkable in an
+afternoon:
+
+- Those functions are typed getters, arithmetic, string, date and color
+  operations, and reads of a stored-value store.
+- Nothing in the jar loads code or reflects: no `android/*` reference, no
+  `ClassLoader`, no `java.lang.reflect`.
+- Nothing in it opens a socket or a file either: no `openConnection`, no
+  `openStream`, no `Socket`, no stream type. `java.net.URL` appears once
+  in the whole jar, in the `Url` type, which constructs one to find out
+  whether a string parses; `URLEncoder`/`URLDecoder` back `encodeUri()`
+  and `decodeUri()`.
+- Three things it does reach, which a paragraph that hid them would be
+  worth nothing: `nowLocal()` reads the device clock and timezone
+  (`System.currentTimeMillis`, `TimeZone.getDefault`), the date and number
+  formatters read the default locale, and on iOS the stored-value store is
+  on by default and file-backed (`divkit.values_storage`), so a card can
+  write a value with `setStoredValue` that a later card reads back. The
+  Android shell registers no storage, so there the same read falls back to
+  its default — an asymmetry to know about before you rely on either
+  behaviour.
+
+So a card can compute a label and, on iOS, remember a flag. It cannot
+reach the Android or iOS SDK, and the screens are a remote config in the
+shape of a feed. That is the argument to make; neither store's text
+mentions server-driven UI by name, and this repo has no app in production
+yet to argue from. It answers 2.5.2 and no more. The rules a server-driven
+app actually trips over are these:
+
+- **Keep the server serving while the build is in review.** Guideline
+  2.3.1(a) wants every new feature described in the Notes for Review *and
+  accessible for review*. A reviewer who meets a login wall, an empty tab
+  or a 502 files a rejection there is no arguing with. Put demo
+  credentials in App Store Connect and Play Console whenever you set
+  `login=`, and do not deploy a breaking change to the screens while a
+  build is under review — the binary is frozen, your screens are not.
+- **Never hold a feature back until approval.** Guideline 2.5.19 forbids
+  hidden, dormant and undocumented features. A build whose server grows a
+  tab the reviewer never saw is the one use of server-driven UI both
+  stores treat as cheating, and 2.3.1(b) answers repeat offenders by
+  closing the developer account rather than the build.
+- **Write down that the screens come from your server.** In the Notes for
+  Review it reads as an architecture. Found by a reviewer who was not
+  told, it reads as something you hid.
+- **Sell digital goods with `Purchase`.** Apple's 3.1.1 requires in-app
+  purchase to unlock anything inside the app, and a screen your server
+  renders is inside the app, so a `Button(on_tap=OpenUrl(...))` pointing
+  at your own checkout is a rejection. The exception, in 3.1.1(a), is the
+  US storefront, plus specific regions where Apple grants an entitlement
+  (External Purchase Link, Music Streaming) — an application, not a
+  default. See [In-app purchases](#in-app-purchases).
+
+Changing copy, prices, layout or adding a screen needs no new review —
+that is the whole point of the framework. A store release is needed when
+the shell changes. What survives neither store is the app's purpose
+changing after approval: a kite shop that becomes a casino is removed
+whether the casino arrived in an update or over a socket.
+
 ## Deploying live screens
 
 A live screen holds a WebSocket, and that socket belongs to the process
@@ -274,7 +353,7 @@ per-build choice:
 ./gradlew :app:assembleRelease -PwithVideo
 ```
 
-That build measures 3,644,695 B against the default 2,901,512 B, which
+That build measures 3,644,695 B against the default 2,901,528 B, which
 is deliberately over the budget CI enforces for the clean shell. iOS
 needs no flag: AVPlayer already plays what it plays, and nothing larger
 ships with the shell.
@@ -300,6 +379,93 @@ The iOS simulator has no camera (it claims otherwise, then shows a blank
 capture screen), so the shell treats it as camera-less: `source="camera"`
 says so there, and taking a shot needs a real device. The Android
 emulator does have one.
+
+## The DivKit dependency
+
+Someone's legal department will ask about this, so here are the facts in a
+form they can check themselves.
+
+DivKit is Apache-2.0, `Copyright 2022 YANDEX LLC`, developed in the open
+at [github.com/divkit/divkit](https://github.com/divkit/divkit). The
+Android shell pins `com.yandex.div:div:33.10.0` and
+`com.yandex.div:coil:33.10.0` from Maven Central, the iOS shell pins
+`divkit-ios` 33.10.0 through SPM as an `exactVersion`.
+
+Apache-2.0 asks you to keep the license text with the app, and the
+acknowledgements screen is the usual place. There is no file named NOTICE,
+but do not copy the Apache header alone: `divkit-ios`'s single `LICENSE`
+runs 406 lines, because after Apache-2.0 it carries notices for what
+DivKit itself builds on — four MIT grants and the JSON License, whose "The
+Software shall be used for Good, not Evil" clause is the line corporate
+legal refuses on sight. Before you reproduce that list, check what your
+app actually links: `org.json`, for one, is not in the Android release
+dependency tree at all (the platform provides it). The Android AARs carry
+no license file of their own, so take the text from the repository.
+
+The license is rarely the real question. The real one is whether the app
+talks to Yandex, and it does not — no Yandex host appears anywhere in the
+default release build, dex, resources and assets alike:
+
+```sh
+cd shell-android
+unzip -oq app/build/outputs/apk/release/app-release-unsigned.apk -d /tmp/apk
+grep -raoiE '[a-z0-9.-]*(yandex|metrica)[a-z0-9.-]*\.(ru|net|com|tech)' /tmp/apk
+```
+
+Unzip first and grep the 616 extracted entries: the APK's own entries are
+deflated, so running `strings` on the `.apk` file reads none of the dex and
+tells you nothing. (A `grep -ac 'com/yandex/div/core' /tmp/apk/classes.dex`
+is the check that your check works — keep the `-a`, or a grep that treats
+the dex as binary answers nothing at all.)
+
+The `yandex` strings that *are* in there are class names
+(`com/yandex/div/core/...`) and animation property keys
+(`yandex:fade:alpha`). At runtime the app talks to three parties — your
+server, Firebase, and the map's tile host:
+
+- the `-PserverUrl` you built with (`http://10.0.2.2:8000` if you passed none)
+- `fcmregistrations.googleapis.com` and `firebaseinstallations.googleapis.com`,
+  Firebase for push, in your own project
+- `tile.openstreetmap.org`, the `Map` fallback
+
+Grepping the same files for URLs prints twenty-eight distinct strings:
+
+```sh
+grep -raoE 'https?://[a-zA-Z0-9._/{}:-]+' /tmp/apk | sed 's|^[^:]*:||' | sort -u
+```
+
+Five of those are the destinations above. None of the other twenty-three
+is an endpoint — among them XML and SVG namespace URIs, the
+`https://your-server.example.com` placeholder from the shell's own URL
+field, license and upstream-source links (`apache.org`, `mozilla.org`,
+`android.googlesource.com`), OkHttp's public-suffix sources, DivKit's
+hot-reload README, and bug-tracker links left in library comments. Read
+what you find; a URL in a binary is not a request.
+
+DivKit's `beacon` module does make requests — `SendBeaconManager` keeps a
+SQLite queue and POSTs log URLs — and `div-histogram` collects render
+timings. Both arrive transitively, both are for a host app that opts in,
+and the release build does not have them: R8 drops them when nothing
+references them, and `classes.dex` contains no `SendBeacon` class at all —
+`grep -ac SendBeacon /tmp/apk/classes.dex` answers `0`. All that is left of
+histogram is the `HistogramFilter` type and a `getHistogramReporter`
+accessor. Grep case-insensitively for `beacon` and you get three hits, all
+of them the bare strings `TAP_BEACONS_ENABLED`,
+`VISIBILITY_BEACONS_ENABLED` and `SWIPE_OUT_BEACONS_ENABLED` — names of an
+experiment enum whose class and whose readers R8 removed. On iOS the
+question does not arise: `divkit-ios` ships neither module.
+
+What leaves the device at runtime is therefore screen requests to your
+server, an FCM token if you use push, and map tiles. That last one hands a
+third party a viewport — roughly where the user is looking — so point
+`Map(tiles=...)` at your own tile server for anything real; it is the
+private choice and also the one OpenStreetMap's tile usage policy asks of
+you.
+
+If your organisation rules out dependencies of Russian origin whatever
+their license and traffic — some do — then this framework is not an
+option for you today. The DSL emits DivKit JSON and both shells are
+DivKit renderers; swapping the renderer is not a build flag.
 
 ## What a release pins
 
