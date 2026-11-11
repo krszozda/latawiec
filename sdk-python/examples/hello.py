@@ -33,7 +33,7 @@ def greeter() -> lt.Component:
     return lt.Column(
         lt.Text("Greeter", size=28),
         lt.TextInput("name", hint="Your name"),
-        lt.Text("Hello, @{name}!", size=20),
+        lt.Text(lt.Expression("Hello, @{name}!"), size=20),
         lt.Button("Clear", on_tap=lt.SetVariable("name", "")),
         lt.Button("Greet", on_tap=lt.Submit("greet", send=("name",))),
     )

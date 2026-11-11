@@ -23,7 +23,8 @@ with DivKit. Package `latawiec` on PyPI.
 
 Components:
 - Text(text, size=None, color=None, weight=None, align=None, line_height=None)
-  # text may use DivKit expressions: Text("Hello, @{name}!"); weight: "light" |
+  # text is shown as written, "@{...}" included; Text(Expression("Hello, @{name}!"))
+  # asks for a DivKit expression instead; weight: "light" |
   # "regular" | "medium" | "bold"; align: "left" | "center" | "right"
 - Image(url)
 - Button(label, on_tap=..., color="#2962FF", text_color="#FFFFFF")
@@ -78,7 +79,10 @@ Components:
 - render(component) -> DivKit card dict (what a shell consumes)
 
 Variables bound by controls are hoisted to the card, so any component can read
-them: Text("@{dark}"), Text("Size: @{size}"). Submit sends string variables.
+them, through an Expression: Text(Expression("@{dark}")),
+Text(Expression("Size: @{size}")). A plain string is shown as typed, so a name or
+a review someone else wrote is never read as an expression. Submit sends string
+variables.
 Every name in a send= has to be declared somewhere on the same screen — by a
 control, or by a SetVariable/RequestLocation on it — or render() refuses the
 screen: DivKit evaluates the action's URL at tap time, and an undeclared name

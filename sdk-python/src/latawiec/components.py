@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
@@ -162,6 +163,62 @@ class Style:
         return div
 
 
+class Expression(str):
+    """A string the shells evaluate instead of showing as written.
+
+    Every other string reaching a component is shown exactly as typed,
+    "@{...}" included, because most of them carry someone's name, a
+    review, a product title — content, which must never be read as code.
+    Wrap one in this to opt into DivKit's expressions:
+
+        Text(Expression("Hello, @{name}!"))
+
+    Whatever goes inside is yours to vouch for: a value that arrived from
+    outside your app does not belong in one.
+
+    It is a str, and only the str itself is marked: slicing it, adding to
+    it or putting it in an f-string gives back a plain string, which is
+    shown as written like any other.
+    """
+
+
+# Two characters cannot travel as themselves in a string DivKit reads:
+# "@{" opens an expression, and a backslash escapes inside one, so a lone
+# backslash makes Android render the whole text as nothing and makes iOS
+# drop the run it sits in. Each is therefore sent as its own small
+# expression that evaluates to it.
+#
+# Escaping them in place instead — "\\@{", "\\\\" — is what both platforms
+# document, and it does not hold up:
+#
+# - Android's tokenizer reads "a \\@{b}" as a plain literal with no
+#   template in it, while the field is still routed through the evaluator
+#   because the raw string holds "@{"; the text renders as nothing.
+# - A backslash in front of either form escapes it, so the escape itself
+#   ends up on screen.
+#
+# Inside the expressions below they are quoted, where escaping them does
+# work. LiteralEscapingTest in shell-android puts these spellings through
+# DivKit's own evaluator — the one place a test can reach it — and the
+# tests here pin what this function produces, so changing either side
+# means changing both.
+_SHOW_MARKER = "@{'\\@{'}"
+_SHOW_BACKSLASH = "@{'\\\\'}"
+_DANGEROUS = re.compile(r"\\|@\{")
+
+
+def _literal(text: str) -> str:
+    """The string as DivKit has to be given it to show it unchanged.
+
+    An Expression is handed over as it is: it asked to be evaluated.
+    """
+    if isinstance(text, Expression):
+        return text
+    return _DANGEROUS.sub(
+        lambda hit: _SHOW_BACKSLASH if hit.group() == "\\" else _SHOW_MARKER, text
+    )
+
+
 class Component(ABC):
     """A node of the UI tree."""
 
@@ -187,7 +244,7 @@ class Text(Component):
 
     def _build(self) -> dv.Div:
         return dv.DivText(
-            text=self.text,
+            text=_literal(self.text),
             font_size=self.size,
             text_color=self.color,
             font_weight=dv.DivFontWeight(self.weight) if self.weight else None,
@@ -211,7 +268,7 @@ class Image(Component):
     style: Style | None = None
 
     def _build(self) -> dv.Div:
-        return dv.DivImage(image_url=self.url)
+        return dv.DivImage(image_url=_literal(self.url))
 
 
 @dataclass(frozen=True)
@@ -222,7 +279,7 @@ class Navigate:
 
     def to_div_action(self) -> dv.DivAction:
         return dv.DivAction(
-            log_id=f"navigate:{self.screen}",
+            log_id=f"navigate:{_literal(self.screen)}",
             url=f"latawiec://navigate?screen={quote(self.screen, safe='')}",
         )
 
@@ -232,8 +289,8 @@ class SetVariable:
     """Tap action: assign a string to a screen variable, on the device.
 
     The variable does not have to belong to a control: naming one here is
-    enough for the screen to declare it, so `Text("@{mood}")` beside the
-    button reads what the tap wrote.
+    enough for the screen to declare it, so `Text(Expression("@{mood}"))`
+    beside the button reads what the tap wrote.
     """
 
     variable: str
@@ -241,10 +298,10 @@ class SetVariable:
 
     def to_div_action(self) -> dv.DivAction:
         return dv.DivAction(
-            log_id=f"set:{self.variable}",
+            log_id=f"set:{_literal(self.variable)}",
             typed=dv.DivActionSetVariable(
-                variable_name=self.variable,
-                value=dv.StringValue(value=self.value),
+                variable_name=_literal(self.variable),
+                value=dv.StringValue(value=_literal(self.value)),
             ),
         )
 
@@ -274,7 +331,7 @@ class Submit:
     def to_div_action(self) -> dv.DivAction:
         query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
         return dv.DivAction(
-            log_id=f"submit:{self.action}",
+            log_id=f"submit:{_literal(self.action)}",
             url=f"latawiec://submit?action={quote(self.action, safe='')}{query}",
         )
 
@@ -311,7 +368,7 @@ class Unlock:
     def to_div_action(self) -> dv.DivAction:
         query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
         return dv.DivAction(
-            log_id=f"unlock:{self.action}",
+            log_id=f"unlock:{_literal(self.action)}",
             url=(
                 f"latawiec://unlock?action={quote(self.action, safe='')}"
                 f"&reason={quote(self.reason, safe='')}{query}"
@@ -392,7 +449,7 @@ class Purchase:
 
     def to_div_action(self) -> dv.DivAction:
         return dv.DivAction(
-            log_id=f"buy:{self.product}",
+            log_id=f"buy:{_literal(self.product)}",
             url=(
                 f"latawiec://buy?product={quote(self.product, safe='')}"
                 f"&action={quote(self.action, safe='')}"
@@ -441,7 +498,7 @@ class CopyToClipboard:
     def to_div_action(self) -> dv.DivAction:
         return dv.DivAction(
             log_id="copy",
-            typed=dv.DivActionCopyToClipboard(content=dv.ContentText(value=self.text)),
+            typed=dv.DivActionCopyToClipboard(content=dv.ContentText(value=_literal(self.text))),
         )
 
 
@@ -498,12 +555,12 @@ class LoadMore(Component):
 
     def _build(self) -> dv.Div:
         return dv.DivText(
-            text=self.label,
+            text=_literal(self.label),
             text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
             paddings=dv.DivEdgeInsets(top=16, bottom=16),
             visibility_actions=[
                 dv.DivVisibilityAction(
-                    log_id=f"more:{self.action}",
+                    log_id=f"more:{_literal(self.action)}",
                     url=f"latawiec://submit?action={quote(self.action, safe='')}",
                     # Unlimited: Android keys fire-counters by (card, log_id)
                     # and never resets them across refreshes, so the default
@@ -550,7 +607,9 @@ class ImagePicker(Component):
         return dv.DivContainer(
             items=[
                 dv.DivText(
-                    text=_PICKER_LABELS[self.source] if self.label is None else self.label,
+                    text=_PICKER_LABELS[self.source]
+                    if self.label is None
+                    else _literal(self.label),
                     visibility=Expr(f"@{{{self.variable} == '' ? 'visible' : 'gone'}}"),
                     text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
                 ),
@@ -583,7 +642,7 @@ class TextInput(Component):
     """A text field bound to a screen variable.
 
     The variable is declared here, so other components can read it with a
-    DivKit expression: Text("Hello, @{name}!").
+    DivKit expression: Text(Expression("Hello, @{name}!")).
     """
 
     variable: str
@@ -593,13 +652,14 @@ class TextInput(Component):
     style: Style | None = None
 
     def _build(self) -> dv.Div:
+        hint = _literal(self.hint) if self.hint else None
         return dv.DivInput(
             text_variable=self.variable,
             keyboard_type=dv.DivInputKeyboardType.PASSWORD if self.password else None,
-            hint_text=self.hint,
+            hint_text=hint,
             # Without a description the input is invisible to screen readers
             # (and to UI tests) on both platforms.
-            accessibility=dv.DivAccessibility(description=self.hint) if self.hint else None,
+            accessibility=dv.DivAccessibility(description=hint) if hint else None,
             paddings=dv.DivEdgeInsets(top=12, bottom=12, left=16, right=16),
             border=dv.DivBorder(corner_radius=8, stroke=dv.DivStroke(color="#B0BEC5")),
         )
@@ -609,7 +669,8 @@ class TextInput(Component):
 class Switch(Component):
     """An on/off toggle bound to a boolean screen variable.
 
-    Read it elsewhere with an expression: Text("@{dark}") shows true/false.
+    Read it elsewhere with an expression: Text(Expression("@{dark}")) shows
+    true/false.
     """
 
     variable: str
@@ -644,21 +705,22 @@ class Select(Component):
     style: Style | None = None
 
     def _build(self) -> dv.Div:
+        hint = _literal(self.hint) if self.hint else None
         return dv.DivSelect(
             value_variable=self.variable,
             options=[
                 dv.DivSelectOption(
-                    text=option.label,
-                    value=option.value if option.value is not None else option.label,
+                    text=_literal(option.label),
+                    value=_literal(option.value if option.value is not None else option.label),
                 )
                 if isinstance(option, Option)
-                else dv.DivSelectOption(text=option, value=option)
+                else dv.DivSelectOption(text=_literal(option), value=_literal(option))
                 for option in self.options
             ],
-            hint_text=self.hint,
+            hint_text=hint,
             # Same trap as DivInput: without a description the control is
             # invisible to screen readers (and to UI tests) on both platforms.
-            accessibility=dv.DivAccessibility(description=self.hint) if self.hint else None,
+            accessibility=dv.DivAccessibility(description=hint) if hint else None,
             paddings=dv.DivEdgeInsets(top=12, bottom=12, left=16, right=16),
             border=dv.DivBorder(corner_radius=8, stroke=dv.DivStroke(color="#B0BEC5")),
         )
@@ -723,7 +785,7 @@ class Button(Component):
     def _build(self) -> dv.Div:
         feedback = "no_animation" if self.tap_animation == "none" else self.tap_animation
         return dv.DivText(
-            text=self.label,
+            text=_literal(self.label),
             text_alignment_horizontal=dv.DivAlignmentHorizontal.CENTER,
             text_color=self.text_color,
             paddings=dv.DivEdgeInsets(top=12, bottom=12, left=20, right=20),
@@ -804,7 +866,7 @@ class Tabs(_Container):
     def _build(self) -> dv.Div:
         return dv.DivTabs(
             items=[
-                dv.DivTabsItem(title=title, div=content.to_div())
+                dv.DivTabsItem(title=_literal(title), div=content.to_div())
                 for title, content in zip(self._titles, self.children, strict=True)
             ],
         )
@@ -976,7 +1038,9 @@ class Video(Component):
         mime, _ = mimetypes.guess_type(self.url)
         return dv.DivVideo(
             height=dv.DivFixedSize(value=self.height),
-            video_sources=[dv.DivVideoSource(url=self.url, mime_type=mime or "video/mp4")],
+            video_sources=[
+                dv.DivVideoSource(url=_literal(self.url), mime_type=mime or "video/mp4")
+            ],
             autostart=True if self.autoplay else None,
             repeatable=True if self.loop else None,
             muted=True if self.muted else None,
@@ -991,7 +1055,7 @@ class GifImage(Component):
     style: Style | None = None
 
     def _build(self) -> dv.Div:
-        return dv.DivGifImage(gif_url=self.url)
+        return dv.DivGifImage(gif_url=_literal(self.url))
 
 
 @dataclass(frozen=True)
@@ -1033,7 +1097,11 @@ ScreenVariable = dv.StringVariable | dv.BooleanVariable | dv.IntegerVariable
 
 def _declared_variables(node: Component) -> list[tuple[str, ScreenVariable]]:
     if isinstance(node, TextInput | Select):
-        return [(node.variable, dv.StringVariable(name=node.variable, value=node.initial))]
+        # The declared value is evaluated like any other string, so a
+        # prefill holding either character needs the same treatment.
+        return [
+            (node.variable, dv.StringVariable(name=node.variable, value=_literal(node.initial)))
+        ]
     if isinstance(node, ImagePicker):
         return [(node.variable, dv.StringVariable(name=node.variable, value=""))]
     if isinstance(node, Switch):
@@ -1071,8 +1139,8 @@ def _sent_variables(node: Component) -> tuple[str, ...]:
 
 def _screen_variables(root: Component) -> list[ScreenVariable]:
     # DivKit scopes a variable declared on an element to that element and its
-    # descendants, so a control's variable is hoisted to the card, where
-    # sibling expressions like Text("@{name}") can read it.
+    # descendants, so a control's variable is hoisted to the card, where a
+    # sibling Text(Expression("@{name}")) can read it.
     declared: dict[str, ScreenVariable] = {}
     from_actions: dict[str, ScreenVariable] = {}
     sent: list[str] = []

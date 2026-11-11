@@ -152,6 +152,7 @@ dependencies {
         implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     }
 
+    testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")

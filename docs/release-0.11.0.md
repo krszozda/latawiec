@@ -2,6 +2,12 @@ The app release: twelve PRs that take Latawiec from "runs an app" to "runs the a
 
 Install `latawiec-shell.apk` below, type your server's address, and everything here arrives over HTTP.
 
+## One break, on purpose
+
+- **Text is text** (#71): every string a component takes is now shown exactly as written, `@{...}` included. Until now anything you rendered was a DivKit expression first — so a product name, a review or a chat message someone else typed could read a screen variable, or quietly render as nothing. Ask for an expression where you mean one: `Text(Expression("Hello, @{name}!"))`. If your app interpolates a variable into text, that is one wrapper per call and nothing else.
+
+  The same fix ends a bug worth knowing about: a backslash is an escape inside a DivKit expression, so `Text("Saved to C:\\reports")` rendered as an empty line on Android. Both characters now travel as expressions that evaluate to themselves, which is the only form that reads back exactly on both platforms — pinned in CI against DivKit's own evaluator, and on a device and a simulator by hand.
+
 ## See all of it at once
 
 - **An example that shows the framework off** (#64): `examples/showcase.py` walks through the components, what a tap can do, live screens and pagination, the device and the store, with each screen saying what it demonstrates. One readable file, and the fastest way to learn what this does. Its own tests keep it from rotting — including one that fails if a feature stops being shown.
