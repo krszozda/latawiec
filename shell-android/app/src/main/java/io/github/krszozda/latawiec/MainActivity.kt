@@ -69,6 +69,7 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -102,12 +103,31 @@ private const val PHOTO_KEEP_MS = 24 * 60 * 60 * 1000L
 /** The server's WebSocket close code for a missing or rejected token. */
 private const val NOT_AUTHORIZED = 4401
 
+/** How often a held-open socket proves it is still there. */
+private const val SOCKET_PING_SECONDS = 20L
+
 /** What OpenUrl may leave the app for; anything else is refused. */
 private val OPENABLE_SCHEMES = setOf("http", "https", "mailto", "tel", "sms")
 
 class MainActivity : AppCompatActivity() {
 
     private val http = OkHttpClient()
+
+    /**
+     * Pings keep a live screen honest: a socket that died without a close —
+     * a dropped network, a NAT or proxy timeout — reports nothing by
+     * itself, so without them the screen sits on its last render forever
+     * and the reconnect backoff never starts.
+     *
+     * Its own client, because pingInterval also pings every HTTP/2
+     * connection the client makes and fails it on a missing pong; screens,
+     * actions, uploads and map tiles have their own timeouts and want no
+     * part of that. newBuilder shares the pool and dispatcher, so this
+     * costs nothing.
+     */
+    private val sockets = http.newBuilder()
+        .pingInterval(SOCKET_PING_SECONDS, TimeUnit.SECONDS)
+        .build()
 
     // Instrumentation tests point the shell at a per-test server. Debug-only:
     // the activity is exported, so in a release build any app could repoint
@@ -563,7 +583,7 @@ class MainActivity : AppCompatActivity() {
         private fun connect() {
             socket?.cancel()
             val url = "${serverUrl.replaceFirst("http", "ws")}/ws/screens/$encodedName"
-            socket = http.newWebSocket(
+            socket = sockets.newWebSocket(
                 authorized(Request.Builder().url(url)).build(),
                 object : WebSocketListener() {
                     override fun onMessage(webSocket: WebSocket, text: String) {

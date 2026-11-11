@@ -60,9 +60,15 @@ def test_navigate_percent_encodes_screen_name() -> None:
 
 
 def test_submit_sends_variables_as_tap_time_expressions() -> None:
-    card = lt.render(lt.Button("Send", on_tap=lt.Submit("sign up", send=("name", "email"))))
+    card = lt.render(
+        lt.Column(
+            lt.Button("Send", on_tap=lt.Submit("sign up", send=("name", "email"))),
+            lt.TextInput("name"),
+            lt.TextInput("email"),
+        )
+    )
 
-    action = card["card"]["states"][0]["div"]["actions"][0]
+    action = card["card"]["states"][0]["div"]["items"][0]["actions"][0]
     assert action == {
         "log_id": "submit:sign up",
         "url": (
@@ -159,10 +165,15 @@ def test_request_location_writes_into_an_existing_control_variable() -> None:
 
 def test_unlock_gates_a_submit_behind_the_device_check() -> None:
     card = lt.render(
-        lt.Button("Pay", on_tap=lt.Unlock("pay", send=("amount",), reason="Confirm the payment"))
+        lt.Column(
+            lt.Button(
+                "Pay", on_tap=lt.Unlock("pay", send=("amount",), reason="Confirm the payment")
+            ),
+            lt.TextInput("amount"),
+        )
     )
 
-    action = card["card"]["states"][0]["div"]["actions"][0]
+    action = card["card"]["states"][0]["div"]["items"][0]["actions"][0]
     assert action == {
         "log_id": "unlock:pay",
         "url": (
@@ -183,6 +194,46 @@ def test_unlock_refuses_input_the_shells_cannot_carry() -> None:
         lt.Unlock("transfer", send=("reason",))
     with pytest.raises(ValueError, match="action"):
         lt.Submit("transfer", send=("action",))
+
+
+def test_an_action_cannot_send_a_variable_the_screen_never_declares() -> None:
+    # DivKit evaluates the action URL at tap time, and an undeclared name
+    # makes that fail — leaving a button that silently does nothing.
+    with pytest.raises(ValueError, match="'missing'"):
+        lt.render(lt.Button("Send", on_tap=lt.Submit("save", send=("missing",))))
+    with pytest.raises(ValueError, match="'missing'"):
+        lt.render(lt.Button("Pay", on_tap=lt.Unlock("pay", send=("missing",), reason="Confirm it")))
+
+
+def test_a_sent_variable_may_be_declared_anywhere_on_the_screen() -> None:
+    # A control nested in a container declares it for the whole card, and so
+    # does an action that writes it; both end up in the card's variables.
+    nested = lt.render(
+        lt.Column(
+            lt.Button("Send", on_tap=lt.Submit("save", send=("deep",))),
+            lt.Gallery(lt.TextInput("deep", initial="typed")),
+        )
+    )
+    assert nested["card"]["variables"] == [{"type": "string", "name": "deep", "value": "typed"}]
+
+    written = lt.render(
+        lt.Column(
+            lt.Button("Pick", on_tap=lt.SetVariable("mood", "kite")),
+            lt.Button("Send", on_tap=lt.Submit("save", send=("mood",))),
+        )
+    )
+    assert written["card"]["variables"] == [{"type": "string", "name": "mood", "value": ""}]
+
+
+def test_map_refuses_a_tiles_template_the_shells_cannot_fetch() -> None:
+    # OkHttp throws on anything that is not an http(s) URL, and the Android
+    # shell builds that request while drawing a frame.
+    with pytest.raises(ValueError, match="not an http"):
+        lt.Map(52.2297, 21.0122, tiles="tile.example.com/{z}/{x}/{y}.png")
+
+    # A template that substitutes nothing fetches one tile forever.
+    with pytest.raises(ValueError, match=r"\{y\}"):
+        lt.Map(52.2297, 21.0122, tiles="https://tile.example.com/{z}/{x}.png")
 
 
 def test_map_hands_the_shells_everything_they_draw() -> None:
