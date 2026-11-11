@@ -15,6 +15,10 @@ private let notAuthorized = 4401
 /// How long a RequestLocation waits for a fix before giving up on one.
 private let fixTimeout: TimeInterval = 10
 
+/// How often a held-open socket proves it is still there. A ping gets the
+/// same span again to be answered before the socket counts as gone.
+private let socketPingInterval: TimeInterval = 20
+
 /// Both shells word it the same way, so the docs can promise it.
 private let noLock = "This device has no lock set up"
 
@@ -355,6 +359,38 @@ final class ScreenViewController: UIViewController {
         socket = task
         receive(on: task)
         task.resume()
+        schedulePing(on: task)
+    }
+
+    /// URLSession never pings of its own accord, and a socket that died
+    /// without a close reports nothing at all — a dropped network, a NAT or
+    /// proxy timeout. Without this a live screen sits on its last render
+    /// forever. An unanswered ping cancels the task, which makes receive()
+    /// fail and reconnect on the backoff it already has.
+    private func schedulePing(on task: URLSessionWebSocketTask) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + socketPingInterval) { [weak self] in
+            // `state` and not just identity: a cancelled task stays in the
+            // field until the reconnect replaces it, and pinging it again
+            // every interval would only log the same death twice a minute.
+            guard let self, task === self.socket, task.state == .running else { return }
+            var answered = false
+            task.sendPing { [weak self] error in
+                DispatchQueue.main.async {
+                    answered = true
+                    guard let self, let error, task === self.socket else { return }
+                    log.warning("ping for \(self.screen) failed: \(String(describing: error))")
+                    task.cancel()
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + socketPingInterval) { [weak self] in
+                guard let self, task === self.socket, task.state == .running, !answered else {
+                    return
+                }
+                log.warning("socket for \(self.screen) stopped answering pings")
+                task.cancel()
+            }
+            self.schedulePing(on: task)
+        }
     }
 
     /// Callbacks of a superseded socket can still fire, so each one acts only
