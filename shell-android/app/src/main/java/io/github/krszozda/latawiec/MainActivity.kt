@@ -4,11 +4,6 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
-import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.drawable.ShapeDrawable
-import android.graphics.drawable.shapes.OvalShape
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -16,9 +11,6 @@ import android.os.LocaleList
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.util.Log
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.EditText
@@ -30,9 +22,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.edit
-import androidx.core.graphics.drawable.toDrawable
-import androidx.core.graphics.toColorInt
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.messaging.FirebaseMessaging
 import com.yandex.div.coil.CoilDivImageLoader
@@ -103,7 +92,7 @@ class MainActivity : AppCompatActivity() {
     }
     internal lateinit var divContext: Div2Context
     private lateinit var stackHost: FrameLayout
-    private lateinit var bottomBar: BottomNavigationView
+    private lateinit var tabBar: TabBar
     private lateinit var tokenStore: TokenStore
     internal lateinit var screenCache: ScreenCache
     private var token: String? = null
@@ -113,9 +102,6 @@ class MainActivity : AppCompatActivity() {
 
     /** Screen from the manifest to show when the server answers 401/4401. */
     private var loginScreen: String? = null
-
-    /** Tab root screens in bar order; a deep link to one selects its tab. */
-    private var tabRoots = emptyList<String>()
 
     /** A deep link that arrived before the manifest; opened once it applies. */
     private var pendingDeepLink: String? = null
@@ -209,7 +195,7 @@ class MainActivity : AppCompatActivity() {
             .divCustomContainerViewAdapter(MapViewAdapter(http))
             .build()
         divContext = Div2Context(this, configuration)
-        bottomBar = BottomNavigationView(this).apply { visibility = View.GONE }
+        tabBar = TabBar(this)
         stackHost = FrameLayout(this).apply {
             // So the video and purchase tests can tell which build this
             // is, instead of passing on whichever fallback they meet.
@@ -219,7 +205,7 @@ class MainActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(stackHost, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
-            addView(bottomBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(tabBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
         setContentView(root, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
@@ -330,13 +316,13 @@ class MainActivity : AppCompatActivity() {
 
     /** A tab root selects its tab; any other screen pushes onto the stack. */
     private fun openDeepLink(screen: String) {
-        val tab = tabRoots.indexOf(screen)
+        val tab = tabBar.roots.indexOf(screen)
         when {
             tab < 0 -> showScreen(screen)
             // Selecting the already-selected item only fires the (empty)
             // reselected listener; the link still means "back to this root".
-            bottomBar.selectedItemId == tab -> showRoot(screen)
-            else -> bottomBar.selectedItemId = tab
+            tabBar.selectedItemId == tab -> showRoot(screen)
+            else -> tabBar.selectedItemId = tab
         }
     }
 
@@ -377,7 +363,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Tab roots replace the whole history: system back on one exits the app. */
-    private fun showRoot(name: String) {
+    internal fun showRoot(name: String) {
         screens.forEach {
             it.stop()
             stackHost.removeView(it)
@@ -654,7 +640,7 @@ class MainActivity : AppCompatActivity() {
                     // Offline boot runs on the last manifest the shell saw.
                     val remembered = screenCache.loadManifest()?.let {
                         try {
-                            JSONObject(it)
+                            parseManifest(JSONObject(it))
                         } catch (parse: JSONException) {
                             null
                         }
@@ -684,7 +670,7 @@ class MainActivity : AppCompatActivity() {
                         if (it.isSuccessful) {
                             fingerprint = it.header("X-Latawiec-Manifest")
                             try {
-                                JSONObject(it.body?.string() ?: "")
+                                parseManifest(JSONObject(it.body?.string() ?: ""))
                             } catch (e: JSONException) {
                                 Log.w(TAG, "manifest is not valid JSON: $e")
                                 null
@@ -709,7 +695,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** The deep link that launched the shell waits for the manifest's tabs. */
-    private fun boot(manifest: JSONObject?) {
+    private fun boot(manifest: AppManifest?) {
         applyManifest(manifest)
         manifestApplied = true
         // Where the user was before the activity was rebuilt. A deep link
@@ -725,15 +711,8 @@ class MainActivity : AppCompatActivity() {
             // The bar's selection is not part of the saved state, so
             // without this it points at the first tab while the user is
             // looking at another one — and re-tapping it does nothing.
-            val tab = tabRoots.indexOf(restored.first())
-            if (tab >= 0) {
-                bottomBar.setOnItemSelectedListener(null)
-                bottomBar.selectedItemId = tab
-                bottomBar.setOnItemSelectedListener { item ->
-                    showRoot(tabRoots[item.itemId])
-                    true
-                }
-            }
+            val tab = tabBar.roots.indexOf(restored.first())
+            if (tab >= 0) tabBar.pointAt(tab)
             return
         }
         pendingDeepLink?.let {
@@ -742,76 +721,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyManifest(manifest: JSONObject?) {
-        loginScreen = manifest?.opt("login") as? String
-        if (manifest?.optBoolean("push") == true) enablePush()
+    private fun applyManifest(manifest: AppManifest?) {
+        loginScreen = manifest?.login
+        if (manifest?.push == true) enablePush()
         if (manifest != null) {
-            devMode = manifest.optBoolean("dev", true)
+            devMode = manifest.dev
             // Cached screens may be rendered per locale, so a language
             // change drops them exactly like a version bump.
-            val version = manifest.opt("version") as? String
             screenCache.adoptVersion(
-                "${version.orEmpty()}|${LocaleList.getDefault().toLanguageTags()}",
+                "${manifest.version.orEmpty()}|${LocaleList.getDefault().toLanguageTags()}",
             )
-            screenCache.storeManifest(manifest.toString())
+            screenCache.storeManifest(manifest.raw)
         }
-        val tabs = manifest?.optJSONArray("tabs")
-        if (tabs == null || tabs.length() == 0) {
-            bottomBar.menu.clear()
-            bottomBar.visibility = View.GONE
+        if (manifest == null || manifest.tabs.isEmpty()) {
             // Re-applied mid-session with the same (lack of) tabs: the
             // stack the user is in stays put.
-            if (tabRoots.isNotEmpty() || screens.isEmpty()) {
-                tabRoots = emptyList()
-                showRoot("home")
-            }
+            val hadTabs = tabBar.roots.isNotEmpty()
+            tabBar.hide()
+            if (hadTabs || screens.isEmpty()) showRoot("home")
             return
         }
-        val tabScreens = ArrayList<String>(tabs.length())
-        val tabTitles = ArrayList<String>(tabs.length())
-        val tabIcons = ArrayList<String?>(tabs.length())
-        try {
-            for (i in 0 until tabs.length()) {
-                val tab = tabs.getJSONObject(i)
-                tabScreens.add(tab.getString("screen"))
-                tabTitles.add(tab.getString("title"))
-                tabIcons.add(if (tab.isNull("icon")) null else tab.getString("icon"))
-            }
-        } catch (e: JSONException) {
-            Log.w(TAG, "manifest tabs are malformed: $e")
-            bottomBar.menu.clear()
-            bottomBar.visibility = View.GONE
-            tabRoots = emptyList()
-            showRoot("home")
-            return
-        }
-        // The same roots re-applied mid-session must not reset the stack:
-        // keep the selection, refresh what the bar shows.
-        val sameRoots = tabScreens == tabRoots
-        val selected = if (sameRoots) bottomBar.selectedItemId else 0
-        // menu.clear() resets the bar's selection, so restoring it below
-        // fires a change event — which must not reach the old listener.
-        bottomBar.setOnItemSelectedListener(null)
-        bottomBar.menu.clear()
-        for (i in tabScreens.indices) {
-            val item = bottomBar.menu.add(Menu.NONE, i, i, tabTitles[i])
-            item.icon = placeholderIcon()
-            tabIcons[i]?.let { loadIcon(it, item) }
-        }
-        val accent = manifest.optJSONObject("theme")?.optString("accent").orEmpty()
-        if (accent.isNotEmpty()) tintBar(accent)
-        // Selection before the listener: restoring it must not re-navigate.
-        bottomBar.selectedItemId = selected
-        tabRoots = tabScreens
-        bottomBar.setOnItemSelectedListener { item ->
-            showRoot(tabScreens[item.itemId])
-            true
-        }
-        // Without this, Material routes a re-tap of the selected item to the
-        // selected listener, which would reset the tab.
-        bottomBar.setOnItemReselectedListener {}
-        bottomBar.visibility = View.VISIBLE
-        if (!sameRoots) showRoot(tabScreens[0])
+        val rootsChanged = tabBar.show(manifest.tabs, manifest.accent)
+        // The same roots re-applied mid-session must not reset the stack.
+        if (rootsChanged) showRoot(manifest.tabs[0].screen)
     }
 
     /**
@@ -842,58 +774,6 @@ class MainActivity : AppCompatActivity() {
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { DeviceRegistry.register(this, it) }
             .addOnFailureListener { Log.w(TAG, "push token fetch failed: $it") }
-    }
-
-    private fun tintBar(accent: String) {
-        val color = try {
-            accent.toColorInt()
-        } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "theme accent $accent is not a color")
-            return
-        }
-        val tint = ColorStateList(
-            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(color, Color.GRAY),
-        )
-        bottomBar.itemIconTintList = tint
-        bottomBar.itemTextColor = tint
-    }
-
-    // A menu item without an icon leaves a hole in the bar, so a tab with no
-    // manifest icon gets a plain circle the item tint colors like the rest.
-    private fun placeholderIcon() = ShapeDrawable(OvalShape()).apply {
-        val size = (24 * resources.displayMetrics.density).toInt()
-        intrinsicWidth = size
-        intrinsicHeight = size
-    }
-
-    private fun loadIcon(path: String, item: MenuItem) {
-        val request = Request.Builder().url(serverUrl + path).build()
-        http.newCall(request).enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    Log.w(TAG, "icon $path failed: $e")
-                }
-
-                override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        if (!it.isSuccessful) {
-                            Log.w(TAG, "icon $path answered HTTP ${it.code}")
-                            return
-                        }
-                        val bytes = it.body?.bytes() ?: return
-                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        if (bitmap == null) {
-                            Log.w(TAG, "icon $path did not decode as an image")
-                            return
-                        }
-                        stackHost.post {
-                            if (!isDestroyed) item.icon = bitmap.toDrawable(resources)
-                        }
-                    }
-                }
-            },
-        )
     }
 
     /**
