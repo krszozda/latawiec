@@ -141,9 +141,9 @@ class ScreenView(
      */
     private fun connect() {
         socket?.cancel()
-        val url = "${host.serverUrl.replaceFirst("http", "ws")}/ws/screens/$encodedName"
-        socket = host.sockets.newWebSocket(
-            host.authorized(Request.Builder().url(url)).build(),
+        val url = "${host.server.url.replaceFirst("http", "ws")}/ws/screens/$encodedName"
+        socket = host.server.sockets.newWebSocket(
+            host.server.authorized(Request.Builder().url(url)).build(),
             object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     if (webSocket == socket) render(text)
@@ -206,9 +206,9 @@ class ScreenView(
                     pollSeconds = cached.policy.substringAfter(':').toLongOrNull()
             }
         }
-        val request =
-            host.authorized(Request.Builder().url("${host.serverUrl}/screens/$encodedName")).build()
-        host.http.newCall(request).enqueue(
+        val url = "${host.server.url}/screens/$encodedName"
+        val request = host.server.authorized(Request.Builder().url(url)).build()
+        host.server.http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     // With a cached copy on screen this is offline mode; a
