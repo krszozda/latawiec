@@ -65,8 +65,11 @@ android {
             )
         }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    androidResources {
         // The libraries bundle ~80 translations; the shell itself has no strings.
-        resourceConfigurations += listOf("en")
+        localeFilters += listOf("en")
     }
 
     buildFeatures {
@@ -135,6 +138,12 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+        // Same rule lint already follows: a warning is fixed, or suppressed
+        // where it points at the one thing the code cannot do, with the
+        // reason written down. Versions are pinned, so this can only start
+        // failing in a dependency bump — which is its own PR anyway, and
+        // retired APIs are exactly what such a PR is for.
+        allWarningsAsErrors.set(true)
     }
 }
 

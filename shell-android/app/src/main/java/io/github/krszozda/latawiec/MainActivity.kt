@@ -677,6 +677,9 @@ class MainActivity : AppCompatActivity() {
         }
         // onNewToken covers rotations; this covers reinstalls of the same
         // token and a registration POST that failed on an earlier boot.
+        // Deprecated in favour of register(), which hands the token to
+        // PushService instead of here — see PushService.onNewToken.
+        @Suppress("DEPRECATION")
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { DeviceRegistry.register(this, it) }
             .addOnFailureListener { Log.w(TAG, "push token fetch failed: $it") }

@@ -22,8 +22,10 @@ and `shell-ios/`.
 - Must pass before pushing (run in `sdk-python/`):
   `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run pytest`
 - When `shell-android/` changed, it must also build and pass lint:
-  `./gradlew :app:assembleDebug :app:lintDebug`. Lint fails on warnings too;
-  a finding is fixed, or disabled in the `lint` block with the reason, never
+  `./gradlew :app:assembleDebug :app:lintDebug`. Warnings fail the build on
+  both sides — the Kotlin compiler runs with `allWarningsAsErrors`, lint with
+  `warningsAsErrors` — and a finding is fixed, or suppressed with the reason
+  written beside it (`@Suppress` at the site, or the `lint` block), never
   left to be scrolled past.
 - When `shell-ios/` changed, it must also build: `xcodegen generate && xcodebuild
   -project LatawiecShell.xcodeproj -scheme LatawiecShell -destination

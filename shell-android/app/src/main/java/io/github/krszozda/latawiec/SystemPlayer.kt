@@ -71,8 +71,11 @@ class SystemPlayer(
             }
         }
         view.setOnCompletionListener { notify(DivPlayer.Observer::onEnd) }
-        view.setOnErrorListener { _, _, _ ->
-            notify(DivPlayer.Observer::onFatal)
+        view.setOnErrorListener { _, what, extra ->
+            // MediaPlayer reports two codes and no exception, so the codes
+            // are the message. This half is the one that reaches DivKit's
+            // error collector.
+            notify { it.onFatal(Throwable("MediaPlayer error $what/$extra")) }
             true
         }
         view.setVideoURI(url)
@@ -126,8 +129,8 @@ class SystemPlayer(
         }
     }
 
-    override fun seek(to: Long) {
-        video?.seekTo(to.toInt())
+    override fun seek(toMs: Long) {
+        video?.seekTo(toMs.toInt())
     }
 
     override fun setMuted(muted: Boolean) {
@@ -135,8 +138,11 @@ class SystemPlayer(
         applyVolume()
     }
 
-    override fun setSource(src: List<DivVideoSource>, config: DivPlayerPlaybackConfig) {
-        sources = src
+    override fun setSource(
+        sourceVariants: List<DivVideoSource>,
+        config: DivPlayerPlaybackConfig,
+    ) {
+        sources = sourceVariants
         this.config = config
         video?.let(::bind)
     }

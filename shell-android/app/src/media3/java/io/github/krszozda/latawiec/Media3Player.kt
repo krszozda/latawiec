@@ -124,11 +124,14 @@ class Media3Player(
         exo.setPlaybackSpeed(speed)
     }
 
-    override fun setSource(src: List<DivVideoSource>, config: DivPlayerPlaybackConfig) {
+    override fun setSource(
+        sourceVariants: List<DivVideoSource>,
+        config: DivPlayerPlaybackConfig,
+    ) {
         // DivKit calls this when the source or the settings actually
         // changed, so this is a different video: carrying the old one's
         // position across would start it in the middle.
-        apply(src, config)
+        apply(sourceVariants, config)
     }
 
     override fun addObserver(observer: DivPlayer.Observer) {

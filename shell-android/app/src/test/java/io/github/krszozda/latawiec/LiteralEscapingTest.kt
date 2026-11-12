@@ -4,7 +4,7 @@ import com.yandex.div.evaluable.Evaluable
 import com.yandex.div.evaluable.EvaluationContext
 import com.yandex.div.evaluable.Evaluator
 import com.yandex.div.evaluable.FunctionProvider
-import com.yandex.div.evaluable.StoredValueProvider
+import com.yandex.div.evaluable.ScopedStoredValueProvider
 import com.yandex.div.evaluable.VariableProvider
 import com.yandex.div.evaluable.WarningSender
 import org.junit.Assert.assertEquals
@@ -29,7 +29,9 @@ class LiteralEscapingTest {
     private val evaluator = Evaluator(
         EvaluationContext(
             variableProvider = VariableProvider { null },
-            storedValueProvider = StoredValueProvider { null },
+            storedValueProvider = object : ScopedStoredValueProvider {
+                override fun get(name: String, scope: String): Any? = null
+            },
             functionProvider = FunctionProvider.STUB,
             warningSender = WarningSender { _, _ -> },
         ),

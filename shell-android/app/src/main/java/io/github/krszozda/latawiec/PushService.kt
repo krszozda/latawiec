@@ -58,7 +58,16 @@ object DeviceRegistry {
 
 class PushService : FirebaseMessagingService() {
 
-    /** Fires for the first token after install and for every rotation. */
+    /**
+     * Fires for the first token after install and for every rotation.
+     *
+     * Firebase 26 retires this half of the API: register() and onRegistered()
+     * replace getToken() and this. The move is not a rename — the token stops
+     * arriving where enablePush() reads it — so it waits for a run against a
+     * real Firebase project on a device, which is the only thing that can
+     * show whether the new callback fires at all.
+     */
+    @Suppress("OVERRIDE_DEPRECATION")
     override fun onNewToken(token: String) {
         DeviceRegistry.register(this, token)
     }
