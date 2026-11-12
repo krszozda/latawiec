@@ -23,6 +23,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 private const val TIMEOUT_MS = 15_000L
+
+/** Room for the tap to reach the shell on a loaded emulator. */
+private const val REGISTER_MS = 2_000L
 private const val SERVER = "http://10.0.2.2:8001"
 private const val LATITUDE = 52.2297
 private const val LONGITUDE = 21.0122
@@ -93,6 +96,22 @@ class LocationTest {
         )
     }
 
+    /**
+     * A test provider's fix reaches only listeners already registered, and
+     * click() returns before the app has dispatched the tap, so publishing
+     * once can land too early and nothing arrives at all. Republishing is
+     * free: the shell answers its first fix and unregisters, so the rest
+     * reach nobody. Which fix of the few it answers is not asserted here,
+     * and the shell does not promise one either.
+     */
+    private fun publishWhileTheTapLands() {
+        val deadline = SystemClock.uptimeMillis() + REGISTER_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            publish(LATITUDE, LONGITUDE)
+            SystemClock.sleep(250)
+        }
+    }
+
     @After
     fun removeTestProvider() {
         runCatching { manager.removeTestProvider(LocationManager.GPS_PROVIDER) }
@@ -123,10 +142,7 @@ class LocationTest {
         awaitScreenText("Server saw nothing")
 
         device.findObject(By.text(screenText("Find me"))).click()
-        // The shell is listening by now; a mock provider only delivers to
-        // listeners that are already waiting.
-        device.waitForIdle()
-        publish(LATITUDE, LONGITUDE)
+        publishWhileTheTapLands()
 
         // The fix reaches the screen variable...
         awaitScreenText("At 52.229700,21.012200")
