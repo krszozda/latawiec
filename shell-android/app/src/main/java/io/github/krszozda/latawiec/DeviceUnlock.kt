@@ -51,6 +51,10 @@ class DeviceUnlock(private val activity: Activity) {
             prompt(reason, passed, failed)
             return
         }
+        // The platform points at BiometricPrompt instead, which is the
+        // branch above — and it only has a passcode fallback from API 29.
+        // Below that, this intent is the whole of what there is.
+        @Suppress("DEPRECATION")
         val intent = keyguard.createConfirmDeviceCredentialIntent(reason, null)
         if (intent == null) failed(NO_LOCK) else confirm(intent)
     }

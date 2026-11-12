@@ -417,7 +417,7 @@ class MapViewAdapter(private val http: OkHttpClient) : DivCustomContainerViewAda
     override fun createView(
         div: DivCustom,
         divView: Div2View,
-        resolver: ExpressionResolver,
+        expressionResolver: ExpressionResolver,
         path: DivStatePath,
     ): View = MapView(divView.context, http)
 
@@ -425,7 +425,7 @@ class MapViewAdapter(private val http: OkHttpClient) : DivCustomContainerViewAda
         view: View,
         div: DivCustom,
         divView: Div2View,
-        resolver: ExpressionResolver,
+        expressionResolver: ExpressionResolver,
         path: DivStatePath,
     ) {
         (view as? MapView)?.bind(div.customProps ?: JSONObject())

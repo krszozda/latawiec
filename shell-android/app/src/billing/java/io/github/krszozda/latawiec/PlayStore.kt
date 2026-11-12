@@ -8,6 +8,7 @@ import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.ConsumeParams
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
@@ -34,7 +35,12 @@ class PlayStore(private val activity: Activity) : StoreFront {
     private var deliver: ((PurchaseOutcome) -> Unit)? = null
 
     private val client: BillingClient = BillingClient.newBuilder(activity)
-        .enablePendingPurchases()
+        // One-time products only, which is what the no-argument overload
+        // this replaces asked for. Prepaid plans are subscriptions, and the
+        // DSL's Purchase sells neither.
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder().enableOneTimeProducts().build(),
+        )
         .setListener(
             PurchasesUpdatedListener { result, purchases ->
                 when (result.responseCode) {
