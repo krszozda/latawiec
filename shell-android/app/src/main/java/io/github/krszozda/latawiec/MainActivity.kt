@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.LocaleList
-import android.provider.OpenableColumns
 import android.text.InputType
 import android.util.Log
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -21,7 +20,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.edit
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.messaging.FirebaseMessaging
 import com.yandex.div.coil.CoilDivImageLoader
@@ -32,70 +30,25 @@ import com.yandex.div.core.DivViewFacade
 import com.yandex.div.json.expressions.ExpressionResolver
 import com.yandex.div2.DivAction
 import com.yandex.div2.DivSightAction
-import java.io.IOException
-import java.util.TimeZone
-import java.util.concurrent.TimeUnit
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import okio.BufferedSink
-import okio.source
 import org.json.JSONException
 import org.json.JSONObject
 
 private const val TAG = "Latawiec"
 private const val PUSH_ANIMATION_MS = 250L
 
-/** How often a held-open socket proves it is still there. */
-private const val SOCKET_PING_SECONDS = 20L
-
 /** What OpenUrl may leave the app for; anything else is refused. */
 private val OPENABLE_SCHEMES = setOf("http", "https", "mailto", "tel", "sms")
 
 class MainActivity : AppCompatActivity() {
 
-    internal val http = OkHttpClient()
+    // Lazy: a field initializer would run before the activity has a context
+    // to open its preferences with.
+    internal val server by lazy { Server(this) }
 
-    /**
-     * Pings keep a live screen honest: a socket that died without a close —
-     * a dropped network, a NAT or proxy timeout — reports nothing by
-     * itself, so without them the screen sits on its last render forever
-     * and the reconnect backoff never starts.
-     *
-     * Its own client, because pingInterval also pings every HTTP/2
-     * connection the client makes and fails it on a missing pong; screens,
-     * actions, uploads and map tiles have their own timeouts and want no
-     * part of that. newBuilder shares the pool and dispatcher, so this
-     * costs nothing.
-     */
-    internal val sockets = http.newBuilder()
-        .pingInterval(SOCKET_PING_SECONDS, TimeUnit.SECONDS)
-        .build()
-
-    // Instrumentation tests point the shell at a per-test server. Debug-only:
-    // the activity is exported, so in a release build any app could repoint
-    // the shell at its own server with this extra. A build with no baked-in
-    // URL (the generic try-it-out APK) falls back to the address the user
-    // typed on first start.
-    internal val serverUrl by lazy {
-        intent.getStringExtra("serverUrl").takeIf { BuildConfig.DEBUG }
-            ?: BuildConfig.SERVER_URL.ifEmpty {
-                getSharedPreferences("latawiec-config", MODE_PRIVATE)
-                    .getString("serverUrl", "").orEmpty()
-            }
-    }
     internal lateinit var divContext: Div2Context
     private lateinit var stackHost: FrameLayout
     private lateinit var tabBar: TabBar
-    private lateinit var tokenStore: TokenStore
     internal lateinit var screenCache: ScreenCache
-    private var token: String? = null
 
     /** Dev keeps the live-reload socket; production fetches and caches. */
     internal var devMode = true
@@ -186,13 +139,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        tokenStore = TokenStore(this)
-        token = tokenStore.load()
         screenCache = ScreenCache(this)
         val configuration = DivConfiguration.Builder(CoilDivImageLoader(this))
             .actionHandler(LatawiecActionHandler())
             .divPlayerFactory(video.factory)
-            .divCustomContainerViewAdapter(MapViewAdapter(http))
+            .divCustomContainerViewAdapter(MapViewAdapter(server.http))
             .build()
         divContext = Div2Context(this, configuration)
         tabBar = TabBar(this)
@@ -243,7 +194,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
-        if (serverUrl.isEmpty()) {
+        if (server.url.isEmpty()) {
             askForServer()
             return
         }
@@ -279,10 +230,7 @@ class MainActivity : AppCompatActivity() {
             hint = "https://your-server.example.com"
             inputType = InputType.TYPE_TEXT_VARIATION_URI
             // A typo'd address comes back for editing, not retyping.
-            setText(
-                getSharedPreferences("latawiec-config", MODE_PRIVATE)
-                    .getString("serverUrl", ""),
-            )
+            setText(server.typedAddress)
         }
         val frame = FrameLayout(this).apply {
             val pad = (20 * resources.displayMetrics.density).toInt()
@@ -297,10 +245,9 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Connect") { _, _ ->
                 val url = input.text.toString().trim().trimEnd('/')
                 if (url.startsWith("http://") || url.startsWith("https://")) {
-                    getSharedPreferences("latawiec-config", MODE_PRIVATE)
-                        .edit { putString("serverUrl", url) }
+                    server.typedAddress = url
                 }
-                // Rebuilds the activity so the lazy serverUrl re-resolves;
+                // Rebuilds the activity so the server's address re-resolves;
                 // a rejected value simply asks again.
                 recreate()
             }
@@ -515,65 +462,39 @@ class MainActivity : AppCompatActivity() {
      * Submit pick it up from there.
      */
     private fun uploadPicked(uri: Uri, variable: String, target: ScreenView?) {
-        val type = contentResolver.getType(uri) ?: "application/octet-stream"
-        val name = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (cursor.moveToFirst() && column >= 0) cursor.getString(column) else null
-        } ?: "photo"
-        // Streamed, not buffered: the photo flows from the content provider
-        // straight into the request on OkHttp's worker thread — a 100 MB
-        // original neither fills memory nor stalls the main thread.
-        val streamed = object : RequestBody() {
-            override fun contentType() = type.toMediaType()
+        server.upload(uri) { reply ->
+            // Our copy of a camera shot is litter the moment the request is
+            // done with it, whether or not this activity is still here.
+            photos.discard(uri)
+            if (isDestroyed) return@upload
+            when (reply) {
+                is Reply.Ok -> {
+                    val value = readJson("the upload's answer", reply.body)
+                        ?.optString("value") ?: return@upload
+                    // The value belongs to the screen that asked for it, but
+                    // a restored pick lost that screen with the old activity.
+                    (target ?: screens.lastOrNull())?.setVariable(variable, value)
+                }
 
-            override fun writeTo(sink: BufferedSink) {
-                val input = contentResolver.openInputStream(uri)
-                    ?: throw IOException("picked photo vanished")
-                input.source().use(sink::writeAll)
-            }
-        }
-        val body = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("file", name, streamed)
-            .build()
-        val request = authorized(Request.Builder().url("$serverUrl/uploads").post(body)).build()
-        http.newCall(request).enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    photos.discard(uri)
-                    Log.w(TAG, "upload failed: $e")
+                Reply.Unauthorized -> onUnauthorized()
+
+                is Reply.Refused -> {
+                    Log.w(TAG, "upload answered HTTP ${reply.code}")
+                    showError(
+                        if (reply.code == 413) {
+                            "That photo is too big"
+                        } else {
+                            "Upload failed — try again"
+                        },
+                    )
+                }
+
+                is Reply.Unreachable -> {
+                    Log.w(TAG, "upload failed: ${reply.cause}")
                     showError("Upload failed — try again")
                 }
-
-                override fun onResponse(call: Call, response: Response) {
-                    photos.discard(uri)
-                    response.use {
-                        if (it.code == 401) {
-                            stackHost.post { if (!isDestroyed) onUnauthorized() }
-                            return
-                        }
-                        if (!it.isSuccessful) {
-                            Log.w(TAG, "upload answered HTTP ${it.code}")
-                            showError(
-                                if (it.code == 413) {
-                                    "That photo is too big"
-                                } else {
-                                    "Upload failed — try again"
-                                },
-                            )
-                            return
-                        }
-                        val value = JSONObject(it.body?.string() ?: return).optString("value")
-                        stackHost.post {
-                            if (!isDestroyed) {
-                                (target ?: screens.lastOrNull())
-                                    ?.setVariable(variable, value)
-                            }
-                        }
-                    }
-                }
-            },
-        )
+            }
+        }
     }
 
     /** The user acted and nothing happened; say so instead of only logging. */
@@ -583,20 +504,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Every screen and action request carries the token and device context. */
-    internal fun authorized(builder: Request.Builder): Request.Builder {
-        token?.let { builder.header("Authorization", "Bearer $it") }
-        builder.header("Accept-Language", LocaleList.getDefault().toLanguageTags())
-        builder.header("X-Latawiec-Platform", "android")
-        builder.header("X-Latawiec-Timezone", TimeZone.getDefault().id)
-        builder.header("X-Latawiec-App-Version", BuildConfig.VERSION_NAME)
-        return builder
-    }
-
     /** A rejected token is gone for good; the login screen starts over. */
     internal fun onUnauthorized() {
-        token = null
-        tokenStore.clear()
+        server.forget()
         // The identity ended, so its cached screens must go with it.
         screenCache.clear()
         val login = loginScreen
@@ -609,8 +519,7 @@ class MainActivity : AppCompatActivity() {
 
     /** The user chose to leave: token and cached screens go together. */
     private fun signOut(target: String?) {
-        token = null
-        tokenStore.clear()
+        server.forget()
         screenCache.clear()
         showRoot(target ?: loginScreen ?: "home")
     }
@@ -632,66 +541,63 @@ class MainActivity : AppCompatActivity() {
      * on "home".
      */
     private fun fetchManifest() {
-        val request = Request.Builder().url("$serverUrl/manifest").build()
-        http.newCall(request).enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    Log.w(TAG, "manifest fetch failed: $e")
-                    // Offline boot runs on the last manifest the shell saw.
-                    val remembered = screenCache.loadManifest()?.let {
-                        try {
-                            parseManifest(JSONObject(it))
-                        } catch (parse: JSONException) {
-                            null
-                        }
+        server.manifest { reply ->
+            if (isDestroyed) return@manifest
+            when (reply) {
+                is Reply.Ok -> {
+                    val manifest = readManifest(reply.body, "the manifest")
+                    // A redeploy blip mid-session must not nuke the chrome; a
+                    // cleared hash retries on the next fingerprint or
+                    // foreground.
+                    if (manifest == null && manifestApplied) {
+                        manifestHash = null
+                        return@manifest
                     }
-                    stackHost.post {
-                        if (isDestroyed) return@post
-                        // A redeploy blip mid-session must not nuke the
-                        // chrome; a cleared hash retries on the next
-                        // fingerprint or foreground.
-                        if (manifestApplied) {
-                            manifestHash = null
-                            return@post
-                        }
-                        // A typed address that never answered once is most
-                        // likely a typo; ask again instead of spinning.
-                        if (remembered == null && BuildConfig.SERVER_URL.isEmpty()) {
-                            askForServer()
-                        } else {
-                            boot(remembered)
-                        }
+                    if (manifest != null) manifestHash = reply.headers["X-Latawiec-Manifest"]
+                    boot(manifest)
+                }
+
+                is Reply.Unreachable -> {
+                    Log.w(TAG, "manifest fetch failed: ${reply.cause}")
+                    if (manifestApplied) {
+                        manifestHash = null
+                        return@manifest
+                    }
+                    // Offline boot runs on the last manifest the shell saw.
+                    val remembered = screenCache.loadManifest()
+                        ?.let { readManifest(it, "the cached manifest") }
+                    // A typed address that never answered once is most likely
+                    // a typo; ask again instead of spinning.
+                    if (remembered == null && BuildConfig.SERVER_URL.isEmpty()) {
+                        askForServer()
+                    } else {
+                        boot(remembered)
                     }
                 }
 
-                override fun onResponse(call: Call, response: Response) {
-                    var fingerprint: String? = null
-                    val manifest = response.use {
-                        if (it.isSuccessful) {
-                            fingerprint = it.header("X-Latawiec-Manifest")
-                            try {
-                                parseManifest(JSONObject(it.body?.string() ?: ""))
-                            } catch (e: JSONException) {
-                                Log.w(TAG, "manifest is not valid JSON: $e")
-                                null
-                            }
-                        } else {
-                            Log.w(TAG, "manifest answered HTTP ${it.code}")
-                            null
-                        }
-                    }
-                    stackHost.post {
-                        if (isDestroyed) return@post
-                        if (manifest == null && manifestApplied) {
-                            manifestHash = null
-                            return@post
-                        }
-                        if (manifest != null) manifestHash = fingerprint
-                        boot(manifest)
-                    }
+                // A refusal, or a 401 to a request that sent no token: either
+                // way an error page is not a manifest.
+                else -> {
+                    Log.w(TAG, "manifest was refused: $reply")
+                    if (manifestApplied) manifestHash = null else boot(null)
                 }
-            },
-        )
+            }
+        }
+    }
+
+    private fun readManifest(json: String, what: String): AppManifest? =
+        readJson(what, json)?.let(::parseManifest)
+
+    /**
+     * JSON the shell cannot read is the server's mistake (or a cache gone
+     * bad). It is worth a log and the screen staying as it is, not the app
+     * going down with it.
+     */
+    private fun readJson(what: String, body: String): JSONObject? = try {
+        JSONObject(body)
+    } catch (e: JSONException) {
+        Log.w(TAG, "$what is not JSON: $e")
+        null
     }
 
     /** The deep link that launched the shell waits for the manifest's tabs. */
@@ -790,49 +696,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun submit(action: String, values: JSONObject, landed: ((Boolean) -> Unit)? = null) {
-        val request = authorized(
-            Request.Builder()
-                .url("$serverUrl/actions/${Uri.encode(action)}")
-                .post(values.toString().toRequestBody("application/json".toMediaType())),
-        ).build()
-        http.newCall(request).enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    landed?.let { stackHost.post { it(false) } }
-                    Log.w(TAG, "action $action failed: $e")
-                    showError("No connection — try again")
+        server.act(action, values) { reply ->
+            // Above the guard below: the signal belongs to whoever asked for
+            // it, not to this activity's UI.
+            landed?.invoke(reply is Reply.Ok)
+            val answer = (reply as? Reply.Ok)
+                ?.let { readJson("the answer to action $action", it.body) }
+            // A sign-in action grants the token every later request
+            // authenticates with. An identity outlives the activity it was
+            // granted to, so it is kept before the rest gives up below.
+            (answer?.opt("token") as? String)?.let { granted ->
+                // A new identity must not inherit the previous one's cached
+                // screens.
+                screenCache.clear()
+                server.remember(granted)
+            }
+            if (isDestroyed) return@act
+            when (reply) {
+                is Reply.Ok -> {
+                    val navigate = answer?.opt("navigate")
+                    if (navigate is String) showScreen(navigate)
                 }
 
-                override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        landed?.let { report -> stackHost.post { report(it.isSuccessful) } }
-                        if (it.code == 401) {
-                            stackHost.post { if (!isDestroyed) onUnauthorized() }
-                            return
-                        }
-                        if (!it.isSuccessful) {
-                            Log.w(TAG, "action $action answered HTTP ${it.code}")
-                            showError("Something went wrong — try again")
-                            return
-                        }
-                        val body = JSONObject(it.body?.string() ?: return)
-                        // A sign-in action grants the token every later
-                        // request authenticates with.
-                        (body.opt("token") as? String)?.let { granted ->
-                            // A new identity must not inherit the previous
-                            // one's cached screens.
-                            screenCache.clear()
-                            token = granted
-                            tokenStore.save(granted)
-                        }
-                        val navigate = body.opt("navigate")
-                        if (navigate is String) {
-                            stackHost.post { if (!isDestroyed) showScreen(navigate) }
-                        }
-                    }
+                Reply.Unauthorized -> onUnauthorized()
+
+                is Reply.Refused -> {
+                    Log.w(TAG, "action $action answered HTTP ${reply.code}")
+                    showError("Something went wrong — try again")
                 }
-            },
-        )
+
+                is Reply.Unreachable -> {
+                    Log.w(TAG, "action $action failed: ${reply.cause}")
+                    showError("No connection — try again")
+                }
+            }
+        }
     }
 
     private inner class LatawiecActionHandler : DivActionHandler() {

@@ -122,8 +122,8 @@ internal class TabBar(private val host: MainActivity) : BottomNavigationView(hos
     }
 
     private fun loadIcon(path: String, item: MenuItem) {
-        val request = Request.Builder().url(host.serverUrl + path).build()
-        host.http.newCall(request).enqueue(
+        val request = Request.Builder().url(host.server.url + path).build()
+        host.server.http.newCall(request).enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     Log.w(TAG, "icon $path failed: $e")
