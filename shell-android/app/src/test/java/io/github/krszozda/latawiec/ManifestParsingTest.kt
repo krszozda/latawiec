@@ -74,6 +74,17 @@ class ManifestParsingTest {
         assertFalse(manifest.push)
         assertNull(manifest.version)
         assertEquals("", manifest.accent)
+        assertEquals("", manifest.background)
+        assertEquals("", manifest.bar)
+    }
+
+    @Test
+    fun chromeColorsReadTheirOwnKeys() {
+        val manifest = parse(
+            """{"theme": {"accent": "#6C8CFF", "background": "#07090D", "bar": "#10151C"}}""",
+        )
+        assertEquals("#07090D", manifest.background)
+        assertEquals("#10151C", manifest.bar)
     }
 
     @Test

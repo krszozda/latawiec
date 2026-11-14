@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -48,6 +49,12 @@ class MainActivity : AppCompatActivity() {
     internal lateinit var divContext: Div2Context
     private lateinit var stackHost: FrameLayout
     private lateinit var tabBar: TabBar
+    private lateinit var root: LinearLayout
+    private lateinit var systemBars: SystemBars
+
+    /** Theme.background, which every screen paints itself with; null is the platform's. */
+    internal var screenBackground: Int? = null
+        private set
     internal lateinit var screenCache: ScreenCache
 
     /** Dev keeps the live-reload socket; production fetches and caches. */
@@ -153,12 +160,13 @@ class MainActivity : AppCompatActivity() {
             contentDescription =
                 "player:${video.name} store:${if (billingBuilt()) "play" else "none"}"
         }
-        val root = LinearLayout(this).apply {
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(stackHost, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(tabBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
         setContentView(root, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        systemBars = SystemBars(this)
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -627,6 +635,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Theme.background behind the screens; the system bars match what is behind them. */
+    private fun paintChrome(manifest: AppManifest) {
+        val background = themeColor(manifest.background, "background")
+        val bar = themeColor(manifest.bar, "bar")
+        screenBackground = background
+        root.setBackgroundColor(background ?: Color.TRANSPARENT)
+        screens.forEach { it.paint(background) }
+        // A tabless app hides the tab bar, so the window shows through there.
+        val bottom = if (manifest.tabs.isEmpty()) background else bar ?: background
+        systemBars.paint(top = background, bottom = bottom)
+    }
+
     private fun applyManifest(manifest: AppManifest?) {
         loginScreen = manifest?.login
         if (manifest?.push == true) enablePush()
@@ -638,6 +658,7 @@ class MainActivity : AppCompatActivity() {
                 "${manifest.version.orEmpty()}|${LocaleList.getDefault().toLanguageTags()}",
             )
             screenCache.storeManifest(manifest.raw)
+            paintChrome(manifest)
         }
         if (manifest == null || manifest.tabs.isEmpty()) {
             // Re-applied mid-session with the same (lack of) tabs: the
@@ -647,7 +668,7 @@ class MainActivity : AppCompatActivity() {
             if (hadTabs || screens.isEmpty()) showRoot("home")
             return
         }
-        val rootsChanged = tabBar.show(manifest.tabs, manifest.accent)
+        val rootsChanged = tabBar.show(manifest.tabs, manifest.accent, themeColor(manifest.bar, "bar"))
         // The same roots re-applied mid-session must not reset the stack.
         if (rootsChanged) showRoot(manifest.tabs[0].screen)
     }

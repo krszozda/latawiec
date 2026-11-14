@@ -169,9 +169,12 @@ App and server (Latawiec subclasses FastAPI):
   push on; a push message's data "screen" key opens that screen on tap.
   Sending is the app's job (its own FCM/APNs credentials); docs/shipping.md
   has the payload shapes.
-- Latawiec(tabs=[Tab(screen, title, icon=None)], theme=Theme(accent="#2962FF"),
+- Latawiec(tabs=[Tab(screen, title, icon=None)], theme=Theme(accent="#2962FF",
+  background=None, bar=None),
   login=None, version=None, dev=True, app_links=None) declares the native
-  bottom bar, chrome colors, the screen shown on 401, the content version (a
+  bottom bar, chrome colors (`background` behind screens, `bar` for the
+  tab bar and iOS's pushed-screen bar; unset, both follow the system's
+  light or dark mode, so a dark-only app sets them), the screen shown on 401, the content version (a
   change tells shells to drop cached screens), and dev mode (deploy with
   dev=False: shells then fetch screens over GET and cache them); shells read
   GET /manifest. app.tabs/theme/login may be reassigned at runtime: a

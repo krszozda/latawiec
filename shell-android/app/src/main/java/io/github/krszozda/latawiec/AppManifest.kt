@@ -23,6 +23,10 @@ internal data class AppManifest(
     val tabs: List<Tab>,
     /** Hex color for the bar's selected item, empty for the default. */
     val accent: String,
+    /** Hex color behind every screen, empty for the platform's own. */
+    val background: String,
+    /** Hex color of the tab bar, empty for the platform's own. */
+    val bar: String,
     /** Serialized back, for the screen cache to boot the next cold start from. */
     val raw: String,
 )
@@ -34,6 +38,8 @@ internal fun parseManifest(json: JSONObject): AppManifest = AppManifest(
     version = json.opt("version") as? String,
     tabs = parseTabs(json.optJSONArray("tabs")),
     accent = json.optJSONObject("theme")?.optString("accent").orEmpty(),
+    background = json.optJSONObject("theme")?.optString("background").orEmpty(),
+    bar = json.optJSONObject("theme")?.optString("bar").orEmpty(),
     raw = json.toString(),
 )
 

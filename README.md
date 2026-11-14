@@ -81,6 +81,10 @@ Young but real, built in public. Working today, on both shells, from one Python 
   A refresh reaches only the phones connected to the instance it runs on, so
   live screens want a single instance, or a bus that refreshes every one of
   them — see [deploying live screens](docs/shipping.md#deploying-live-screens)
+- Branded chrome: `Theme(accent="#6C8CFF", background="#07090D", bar="#10151C")`
+  paints the window behind every screen and both shells' bars; status-bar
+  icons and unselected tabs turn light or dark to match. iOS keeps its
+  navigation bar off root screens and shows only a back chevron on pushed ones
 - Animations in `Style`: `appear=Fade()` / `Slide()` / `Grow()`, `disappear`,
   `move=N` for layout shifts — they fire on live refreshes too, so streamed
   content glides in instead of popping

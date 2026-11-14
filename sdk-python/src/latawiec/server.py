@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypedDict, cast
@@ -41,11 +42,31 @@ class Tab:
     """Image path the shell resolves against the server, e.g. "/assets/home.png"."""
 
 
+_HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+
+
 @dataclass(frozen=True)
 class Theme:
-    """Colors the shells apply to their native chrome."""
+    """Colors the shells apply to their native chrome.
+
+    `accent` tints the selected tab and the back button. `background` fills
+    the window behind every screen — the strip under the status bar, and
+    whatever a screen does not paint itself. `bar` fills the tab bar and,
+    on iOS, the navigation bar of pushed screens. Left as None, each keeps
+    the platform's own (light or dark, following the system). The shells
+    pick light or dark status-bar icons and unselected-tab colors from how
+    light `background` and `bar` are, so a dark app stays legible.
+    """
 
     accent: str = "#2962FF"
+    background: str | None = None
+    bar: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("accent", "background", "bar"):
+            value = getattr(self, name)
+            if value is not None and not _HEX_COLOR.fullmatch(value):
+                raise ValueError(f"Theme.{name} must be a #RRGGBB color, got {value!r}")
 
 
 @dataclass(frozen=True)
@@ -556,12 +577,22 @@ class Latawiec(FastAPI):
             return True, user
         return user is not None, user
 
+    def _theme_payload(self) -> dict[str, str]:
+        # Unset colors stay out, so older shells and default themes see the
+        # manifest they always did.
+        theme = {"accent": self.theme.accent}
+        if self.theme.background is not None:
+            theme["background"] = self.theme.background
+        if self.theme.bar is not None:
+            theme["bar"] = self.theme.bar
+        return theme
+
     def _manifest_payload(self) -> dict[str, Any]:
         return {
             "tabs": [
                 {"screen": tab.screen, "title": tab.title, "icon": tab.icon} for tab in self.tabs
             ],
-            "theme": {"accent": self.theme.accent},
+            "theme": self._theme_payload(),
             "login": self.login,
             "version": self.version,
             "dev": self.dev,

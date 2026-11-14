@@ -42,6 +42,8 @@ private struct Manifest: Decodable {
 
     struct Theme: Decodable {
         let accent: String
+        let background: String?
+        let bar: String?
     }
 
     let tabs: [Tab]
@@ -315,6 +317,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                     ScreenCache.shared.adoptVersion("\(manifest.version ?? "")|\(languages)")
                     ScreenCache.shared.storeManifest(raw)
                 }
+                Chrome.adopt(
+                    accent: manifest?.theme?.accent,
+                    background: manifest?.theme?.background,
+                    bar: manifest?.theme?.bar
+                )
                 if let manifest, !manifest.tabs.isEmpty {
                     let roots = manifest.tabs.map(\.screen)
                     // The same roots re-applied mid-session must not reset
@@ -328,9 +335,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                             if let icon = tab.icon {
                                 Self.loadIcon(at: icon, into: controllers[index].tabBarItem)
                             }
-                        }
-                        if let accent = manifest.theme.flatMap({ Self.color(hex: $0.accent) }) {
-                            tabBar.tabBar.tintColor = accent
                         }
                     } else {
                         self.tabScreens = roots
@@ -354,6 +358,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                         self.window?.rootViewController = Self.fallbackRoot()
                     }
                 }
+                // Stacks kept from before (same tabs, or none) still wear
+                // the old theme; fresh roots were styled as they were built.
+                Chrome.restyle(self.window?.rootViewController)
                 self.manifestApplied = true
                 if let screen = self.pendingDeepLink {
                     self.pendingDeepLink = nil
@@ -367,13 +374,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     private static func fallbackRoot() -> UIViewController {
-        UINavigationController(rootViewController: ScreenViewController(screen: "home"))
+        StackController(rootViewController: ScreenViewController(screen: "home"))
     }
 
     private static func tabBarController(for manifest: Manifest) -> UITabBarController {
         let controller = UITabBarController()
         controller.viewControllers = manifest.tabs.map { tab in
-            let navigation = UINavigationController(
+            let navigation = StackController(
                 rootViewController: ScreenViewController(screen: tab.screen)
             )
             navigation.tabBarItem.title = tab.title
@@ -382,9 +389,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             }
             return navigation
         }
-        if let accent = manifest.theme.flatMap({ color(hex: $0.accent) }) {
-            controller.tabBar.tintColor = accent
-        }
+        Chrome.style(controller.tabBar)
         return controller
     }
 
@@ -407,18 +412,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 item.image = scaled.withRenderingMode(.alwaysTemplate)
             }
         }.resume()
-    }
-
-    private static func color(hex: String) -> UIColor? {
-        guard hex.hasPrefix("#"), hex.count == 7,
-              let rgb = UInt32(hex.dropFirst(), radix: 16)
-        else { return nil }
-        return UIColor(
-            red: CGFloat((rgb >> 16) & 0xFF) / 255,
-            green: CGFloat((rgb >> 8) & 0xFF) / 255,
-            blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1
-        )
     }
 }
 

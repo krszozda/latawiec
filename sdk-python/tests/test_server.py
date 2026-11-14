@@ -1,6 +1,7 @@
 import threading
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import latawiec as lt
@@ -88,6 +89,24 @@ def test_manifest_defaults_to_no_tabs_and_default_theme() -> None:
         "dev": True,
         "push": False,
     }
+
+
+def test_manifest_carries_chrome_colors_only_when_set() -> None:
+    themed = lt.Latawiec(theme=lt.Theme(accent="#6C8CFF", background="#07090D", bar="#10151C"))
+
+    response = TestClient(themed).get("/manifest")
+
+    assert response.json()["theme"] == {
+        "accent": "#6C8CFF",
+        "background": "#07090D",
+        "bar": "#10151C",
+    }
+
+
+@pytest.mark.parametrize("field", ["accent", "background", "bar"])
+def test_theme_rejects_a_color_the_shells_cannot_parse(field: str) -> None:
+    with pytest.raises(ValueError, match=f"Theme.{field}"):
+        lt.Theme(**{field: "#0A0"})
 
 
 def test_manifest_lists_tabs_and_theme() -> None:
