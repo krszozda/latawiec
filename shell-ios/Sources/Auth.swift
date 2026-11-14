@@ -97,7 +97,7 @@ enum Auth {
 
     private static func restart(on screen: String) {
         let window = (UIApplication.shared.delegate as? AppDelegate)?.window
-        window?.rootViewController = UINavigationController(
+        window?.rootViewController = StackController(
             rootViewController: ScreenViewController(screen: screen)
         )
     }

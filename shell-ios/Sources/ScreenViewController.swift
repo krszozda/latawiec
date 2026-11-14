@@ -104,7 +104,13 @@ final class ScreenViewController: UIViewController {
     init(screen: String) {
         self.screen = screen
         super.init(nibName: nil, bundle: nil)
-        title = screen
+        // A screen name is a route, not a title ("product/42"): pushed
+        // screens show a bare back chevron and the app draws its own header.
+        navigationItem.backButtonDisplayMode = .minimal
+    }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        Chrome.statusBarStyle(over: Chrome.background)
     }
 
     @available(*, unavailable)
@@ -117,7 +123,7 @@ final class ScreenViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = Chrome.screenBackground
         view.addSubview(divView)
         divView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

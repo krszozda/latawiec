@@ -70,13 +70,22 @@ class ScreenView(
     }
 
     init {
-        // Screens stack on top of each other; without an opaque
-        // background the covered screen bleeds through.
-        val background = TypedValue()
-        context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
-        setBackgroundColor(background.data)
+        paint(host.screenBackground)
         addView(swipe, LayoutParams(MATCH_PARENT, MATCH_PARENT))
         addView(spinner, LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER))
+    }
+
+    /** Theme.background, or the platform's own for null. */
+    fun paint(color: Int?) {
+        // Screens stack on top of each other; without an opaque
+        // background the covered screen bleeds through.
+        if (color != null) {
+            setBackgroundColor(color)
+            return
+        }
+        val platform = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.colorBackground, platform, true)
+        setBackgroundColor(platform.data)
     }
 
     private fun canAnyScrollUp(view: View): Boolean {

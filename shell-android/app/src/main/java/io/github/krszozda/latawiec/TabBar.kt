@@ -11,7 +11,6 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import androidx.core.graphics.drawable.toDrawable
-import androidx.core.graphics.toColorInt
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import java.io.IOException
 import okhttp3.Call
@@ -20,6 +19,9 @@ import okhttp3.Request
 import okhttp3.Response
 
 private const val TAG = "Latawiec"
+
+/** Unselected tab color on a dark bar: white at 55%, as on iOS. */
+private const val IDLE_ON_DARK = 0x8CFFFFFF.toInt()
 
 /**
  * The bar across the bottom, as the manifest's tabs describe it. It knows
@@ -35,6 +37,11 @@ internal class TabBar(private val host: MainActivity) : BottomNavigationView(hos
     var roots = emptyList<String>()
         private set
 
+    // The platform's own look, for a theme that drops its colors.
+    private val platformBackground = background
+    private val platformIconTint = itemIconTintList
+    private val platformTextColor = itemTextColor
+
     init {
         // A manifest with tabs reveals it; until then there is nothing to show.
         visibility = View.GONE
@@ -46,7 +53,7 @@ internal class TabBar(private val host: MainActivity) : BottomNavigationView(hos
      * Answers whether the roots changed, since a new set leaves the host
      * showing a screen no tab roots any more.
      */
-    fun show(tabs: List<Tab>, accent: String): Boolean {
+    fun show(tabs: List<Tab>, accent: String, bar: Int?): Boolean {
         val screens = tabs.map { it.screen }
         val rootsChanged = screens != roots
         val selected = if (rootsChanged) 0 else selectedItemId
@@ -59,7 +66,8 @@ internal class TabBar(private val host: MainActivity) : BottomNavigationView(hos
             item.icon = placeholderIcon()
             tab.icon?.let { loadIcon(it, item) }
         }
-        if (accent.isNotEmpty()) tint(accent)
+        if (bar != null) setBackgroundColor(bar) else background = platformBackground
+        tint(themeColor(accent, "accent"), bar)
         // Selection before the listener: restoring it must not re-navigate.
         selectedItemId = selected
         roots = screens
@@ -98,17 +106,17 @@ internal class TabBar(private val host: MainActivity) : BottomNavigationView(hos
         }
     }
 
-    private fun tint(accent: String) {
-        val color = try {
-            accent.toColorInt()
-        } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "theme accent $accent is not a color")
+    private fun tint(accent: Int?, bar: Int?) {
+        if (accent == null && bar == null) {
+            itemIconTintList = platformIconTint
+            itemTextColor = platformTextColor
             return
         }
-        val colors = ColorStateList(
-            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(color, Color.GRAY),
-        )
+        val checked = intArrayOf(android.R.attr.state_checked)
+        val selected = accent ?: platformIconTint?.getColorForState(checked, Color.GRAY) ?: Color.GRAY
+        // Unselected items are a muted version of what reads on the bar.
+        val idle = if (bar == null || isLight(bar)) Color.GRAY else IDLE_ON_DARK
+        val colors = ColorStateList(arrayOf(checked, intArrayOf()), intArrayOf(selected, idle))
         itemIconTintList = colors
         itemTextColor = colors
     }
