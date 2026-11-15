@@ -256,3 +256,40 @@ def forget_spot(values: dict[str, str], ctx: lt.Context) -> None:
     # let the assertion pass without the shell doing anything.
     SPOTS.pop(ctx.platform, None)
     app.refresh("where")
+
+
+SETTINGS: dict[str, str] = {}
+
+
+@app.screen("settings", live=True)
+def settings(ctx: lt.Context) -> lt.Component:
+    # The fixture for the shells' SubmitTypes tests: a boolean and an
+    # integer, neither of which is a string.
+    return lt.Column(
+        lt.Text("Settings", size=28, weight="bold", style=lt.Style(margin=48)),
+        lt.Switch("dark", style=lt.Style(margin=lt.Edges(left=16, right=16))),
+        lt.Slider("size", min=1, max=10, initial=3, style=lt.Style(margin=16)),
+        lt.Button(
+            "Save",
+            on_tap=lt.Submit("save_settings", send=("dark", "size")),
+            style=lt.Style(margin=16),
+        ),
+        lt.Text(
+            f"Server saw {SETTINGS.get(ctx.platform, 'nothing')}",
+            color="#757575",
+            style=lt.Style(margin=lt.Edges(left=16, right=16)),
+        ),
+    )
+
+
+@app.action("save_settings")
+def save_settings(values: dict[str, str], ctx: lt.Context) -> None:
+    SETTINGS[ctx.platform] = f"dark={values.get('dark')} size={values.get('size')}"
+    app.refresh("settings")
+
+
+@app.action("forget_settings")
+def forget_settings(values: dict[str, str], ctx: lt.Context) -> None:
+    # The UI tests call this first, for the same reason forget_spot exists.
+    SETTINGS.pop(ctx.platform, None)
+    app.refresh("settings")

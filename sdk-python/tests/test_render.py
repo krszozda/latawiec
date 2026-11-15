@@ -75,7 +75,9 @@ def test_submit_sends_variables_as_tap_time_expressions() -> None:
     assert action == {
         "log_id": "submit:sign up",
         "url": (
-            "latawiec://submit?action=sign%20up&name=@{encodeUri(name)}&email=@{encodeUri(email)}"
+            "latawiec://submit?action=sign%20up"
+            "&name=@{encodeUri(toString(name))}"
+            "&email=@{encodeUri(toString(email))}"
         ),
     }
 
@@ -181,7 +183,7 @@ def test_unlock_gates_a_submit_behind_the_device_check() -> None:
         "log_id": "unlock:pay",
         "url": (
             "latawiec://unlock?action=pay&reason=Confirm%20the%20payment"
-            "&amount=@{encodeUri(amount)}"
+            "&amount=@{encodeUri(toString(amount))}"
         ),
     }
 
