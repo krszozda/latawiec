@@ -313,6 +313,16 @@ def _reject_reserved(send: tuple[str, ...], reserved: tuple[str, ...]) -> None:
         raise ValueError(f"cannot send {clash[0]!r}: the action URL already uses that name")
 
 
+def _send_query(send: tuple[str, ...]) -> str:
+    """encodeUri takes a string and nothing else, so a Switch's boolean or a
+    Slider's integer matches no overload, the whole URL fails to evaluate,
+    and the tap is dropped without an error anyone can see. toString has an
+    overload per type on both platforms, and both print the same thing —
+    "true"/"false" for a boolean, the plain digits for an integer.
+    """
+    return "".join(f"&{name}=@{{encodeUri(toString({name}))}}" for name in send)
+
+
 @dataclass(frozen=True)
 class Submit:
     """Tap action: POST the named screen variables to a server action handler.
@@ -329,7 +339,7 @@ class Submit:
         _reject_reserved(self.send, ("action",))
 
     def to_div_action(self) -> dv.DivAction:
-        query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
+        query = _send_query(self.send)
         return dv.DivAction(
             log_id=f"submit:{_literal(self.action)}",
             url=f"latawiec://submit?action={quote(self.action, safe='')}{query}",
@@ -366,7 +376,7 @@ class Unlock:
         _reject_reserved(self.send, ("action", "reason"))
 
     def to_div_action(self) -> dv.DivAction:
-        query = "".join(f"&{name}=@{{encodeUri({name})}}" for name in self.send)
+        query = _send_query(self.send)
         return dv.DivAction(
             log_id=f"unlock:{_literal(self.action)}",
             url=(
