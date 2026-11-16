@@ -21,7 +21,9 @@ app = lt.Latawiec(dev=False, version="2026.11.07", login="signin")
 ```
 
 `dev=False` makes the shells fetch over GET and cache screens on disk, and
-the URL must be `https` — release builds refuse plain HTTP.
+the URL must be `https` — release builds refuse plain HTTP. `version` is
+your content version, kept in `app.content_version`, apart from FastAPI's
+own `app.version`.
 
 ## Android (Play Console)
 
