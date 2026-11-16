@@ -328,6 +328,19 @@ def test_cache_policy_rides_in_cache_control_headers() -> None:
     assert manifest["dev"] is False
 
 
+def test_a_default_app_serves_its_openapi_schema() -> None:
+    # An app with no version of its own used to leave None on FastAPI's
+    # `version` and take /openapi.json down with it.
+    assert TestClient(lt.Latawiec()).get("/openapi.json").status_code == 200
+
+
+def test_the_content_version_stays_out_of_the_openapi_schema() -> None:
+    client = TestClient(lt.Latawiec(version="2026.11.07"))
+
+    # 0.1.0 is FastAPI's own default.
+    assert client.get("/openapi.json").json()["info"]["version"] == "0.1.0"
+
+
 def test_guarded_screens_default_to_no_store() -> None:
     guarded = guarded_app()
 

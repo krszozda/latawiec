@@ -233,7 +233,9 @@ class Latawiec(FastAPI):
         self.theme = theme or Theme()
         self.login = login
         """Screen the shells show when the server answers 401/4401."""
-        self.version = version
+        # Not self.version: FastAPI owns that one and OpenAPI requires a
+        # string there.
+        self.content_version = version
         """Content version; a change tells the shells to drop cached screens."""
         self.dev = dev
         """Dev keeps the live-reload sockets; deploy with dev=False so shells
@@ -594,7 +596,7 @@ class Latawiec(FastAPI):
             ],
             "theme": self._theme_payload(),
             "login": self.login,
-            "version": self.version,
+            "version": self.content_version,
             "dev": self.dev,
             "push": self._device_handler is not None,
         }
