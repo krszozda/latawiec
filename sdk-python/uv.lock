@@ -351,6 +351,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "pydivkit" },
     { name = "python-multipart" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -366,7 +367,6 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
     { name = "uvicorn" },
-    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -375,6 +375,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2" },
     { name = "pydivkit", specifier = ">=33.10,<34" },
     { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "websockets", specifier = ">=13" },
 ]
 provides-extras = ["mcp"]
 
@@ -386,7 +387,6 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
     { name = "uvicorn", specifier = ">=0.30" },
-    { name = "websockets", specifier = ">=13" },
 ]
 
 [[package]]

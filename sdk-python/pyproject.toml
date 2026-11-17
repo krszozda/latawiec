@@ -11,6 +11,11 @@ dependencies = [
     "pydivkit>=33.10,<34",
     # FastAPI parses the /uploads multipart form through it.
     "python-multipart>=0.0.9",
+    # Live screens are served over a WebSocket, and uvicorn with no
+    # WebSocket library installed does not fail the handshake: it answers
+    # the route with 404, which a shell cannot tell from a route that was
+    # never there.
+    "websockets>=13",
 ]
 
 [project.urls]
@@ -35,7 +40,6 @@ dev = [
     "pyright>=1.1.390",
     "httpx2>=2.0",
     "uvicorn>=0.30",
-    "websockets>=13",
     "mcp>=2",
 ]
 
