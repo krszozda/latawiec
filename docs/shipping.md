@@ -25,6 +25,14 @@ the URL must be `https` — release builds refuse plain HTTP. `version` is
 your content version, kept in `app.content_version`, apart from FastAPI's
 own `app.version`.
 
+That `https` matters to one more thing: `Image`, `GifImage` and `Video`
+resolve a path like `/assets/logo.png` against the address the request
+arrived on, so the server has to see the scheme its clients used. Behind a
+TLS-terminating proxy, uvicorn reads `X-Forwarded-Proto` only from hosts it
+trusts — `127.0.0.1,::1` unless `--forwarded-allow-ips` says otherwise — so
+a proxy anywhere else leaves the server stamping `http://` into every card,
+and a release shell declines to load those pictures without a word.
+
 ## Android (Play Console)
 
 One-time: create an upload keystore and keep it out of git.

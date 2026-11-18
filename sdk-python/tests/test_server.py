@@ -593,6 +593,46 @@ def test_refresh_pushes_a_fresh_render_to_subscribers() -> None:
         assert third["card"]["states"][0]["div"]["text"] == "Count: 2"
 
 
+def test_asset_paths_resolve_against_the_server_the_phone_reached() -> None:
+    poster_app = lt.Latawiec()
+
+    @poster_app.screen("poster", live=True)
+    def poster() -> lt.Component:
+        return lt.Image("/assets/kite.png")
+
+    @poster_app.action("repaint")
+    def repaint(values: dict[str, str]) -> None:
+        poster_app.refresh("poster")
+
+    resolved = "http://testserver/assets/kite.png"
+    with TestClient(poster_app) as probe:
+        over_http = probe.get("/screens/poster").json()
+        assert over_http["card"]["states"][0]["div"]["image_url"] == resolved
+
+        # A socket's own base_url says ws://, which no image loader fetches,
+        # and a pushed render has no request of its own to ask at all.
+        with probe.websocket_connect("/ws/screens/poster") as socket:
+            first = socket.receive_json()
+            assert first["card"]["states"][0]["div"]["image_url"] == resolved
+            probe.post("/actions/repaint", json={})
+            pushed = socket.receive_json()
+            assert pushed["card"]["states"][0]["div"]["image_url"] == resolved
+
+
+def test_an_asset_path_keeps_the_prefix_the_app_is_mounted_under() -> None:
+    # Behind a proxy the app may answer under a prefix, and /assets is served
+    # under it too, so a resolved path has to carry it.
+    mounted = lt.Latawiec()
+
+    @mounted.screen("poster")
+    def poster() -> lt.Component:
+        return lt.Image("/assets/kite.png")
+
+    card = TestClient(mounted, root_path="/kite").get("/screens/poster").json()
+
+    assert card["card"]["states"][0]["div"]["image_url"] == "http://testserver/kite/assets/kite.png"
+
+
 def test_refresh_before_serving_is_a_noop() -> None:
     live_app, _ = _counter_app()
     live_app.refresh("counter")  # must not raise

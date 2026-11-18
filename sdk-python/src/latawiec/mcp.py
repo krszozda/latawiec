@@ -27,6 +27,8 @@ Components:
   # asks for a DivKit expression instead; weight: "light" |
   # "regular" | "medium" | "bold"; align: "left" | "center" | "right"
 - Image(url)
+  # a path like "/assets/logo.png" resolves against the server the screen was
+  # requested from, the way a tab icon does; any other url is passed through
 - Button(label, on_tap=..., color="#2962FF", text_color="#FFFFFF")
   # on_tap: Navigate(screen) | SetVariable(variable, value)
   #       | Submit(action, send=(variable, ...))
@@ -71,8 +73,8 @@ Components:
   Latawiec(tabs=[...])
 - Video(url, autoplay=False, loop=False, muted=False, height=200)  # the
   platform player: MP4 and HLS. DASH needs an Android shell built with
-  -PwithVideo (docs/shipping.md); iOS needs no flag
-- GifImage(url)
+  -PwithVideo (docs/shipping.md); iOS needs no flag. url resolves like Image's
+- GifImage(url)  # url resolves like Image's
   # Video plays through the platform player on both shells (AVPlayer /
   # MediaPlayer): MP4 and HLS, not DASH/DRM — those need a custom factory
 - Separator(color="#B0BEC5"), Spacer(height=N) or Spacer(width=N)
@@ -185,8 +187,9 @@ App and server (Latawiec subclasses FastAPI):
   https links open the app (App Links / Universal Links).
 - @app.screen(name, cache="static" | "swr" | "no-store") steers the shells'
   screen cache; guarded screens default to no-store, the rest to swr.
-- app.assets("static") serves that directory under /assets — tab icons point
-  there, e.g. Tab("home", "Home", icon="/assets/home.png").
+- app.assets("static") serves that directory under /assets — tab icons and
+  Image/GifImage/Video point there by path, e.g. Tab("home", "Home",
+  icon="/assets/home.png") and Image("/assets/home.png").
 - @app.auth registers the token check: it gets the bearer token (or None) and
   returns a truthy user object, or None to reject. Guarded screens/actions then
   need Authorization: Bearer <token>; register the login screen and its sign-in

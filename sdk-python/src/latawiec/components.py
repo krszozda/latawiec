@@ -3,6 +3,7 @@ from __future__ import annotations
 import mimetypes
 import re
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 from urllib.parse import quote
@@ -207,6 +208,28 @@ _SHOW_BACKSLASH = "@{'\\\\'}"
 _DANGEROUS = re.compile(r"\\|@\{")
 
 
+_base: ContextVar[str] = ContextVar("latawiec_base", default="")
+
+
+def _asset(url: str) -> str:
+    """A path like /assets/logo.png, resolved against the server the screen
+    was requested from.
+
+    The platform image and video loaders are handed a URL string and have no
+    base of their own, so a path relative to the server means nothing to
+    them. The server knows where the phone reached it and fills that in; a
+    URL that is already absolute reaches the loader as written.
+
+    An Expression is rebuilt as one, because an f-string hands back a plain
+    string and _literal would then escape the expression into nonsense.
+    """
+    base = _base.get()
+    if not base or not url.startswith("/"):
+        return url
+    resolved = f"{base}{url}"
+    return Expression(resolved) if isinstance(url, Expression) else resolved
+
+
 def _literal(text: str) -> str:
     """The string as DivKit has to be given it to show it unchanged.
 
@@ -259,16 +282,17 @@ class Text(Component):
 class Image(Component):
     """A picture, fetched by the platform's own image loader.
 
-    The URL has to be absolute: it goes to that loader untouched, so a
-    path relative to your server means nothing to it. A tab icon is the
-    exception — the shell fetches those itself.
+    A path starting with "/" — `/assets/logo.png` — is resolved against the
+    server the screen was requested from, the way a tab icon is, so an app
+    does not have to know its own hostname. Anything else is passed to the
+    loader as written, so an image on another host keeps working.
     """
 
     url: str
     style: Style | None = None
 
     def _build(self) -> dv.Div:
-        return dv.DivImage(image_url=_literal(self.url))
+        return dv.DivImage(image_url=_literal(_asset(self.url)))
 
 
 @dataclass(frozen=True)
@@ -1031,6 +1055,8 @@ class Video(Component):
     so the supported formats are what the system plays — MP4 and HLS cover
     it. DASH needs an Android shell built with -PwithVideo, which carries
     ExoPlayer; see docs/shipping.md.
+
+    The URL is resolved like Image's.
     """
 
     url: str
@@ -1049,7 +1075,7 @@ class Video(Component):
         return dv.DivVideo(
             height=dv.DivFixedSize(value=self.height),
             video_sources=[
-                dv.DivVideoSource(url=_literal(self.url), mime_type=mime or "video/mp4")
+                dv.DivVideoSource(url=_literal(_asset(self.url)), mime_type=mime or "video/mp4")
             ],
             autostart=True if self.autoplay else None,
             repeatable=True if self.loop else None,
@@ -1059,13 +1085,16 @@ class Video(Component):
 
 @dataclass(frozen=True)
 class GifImage(Component):
-    """An animated GIF; plain Image shows only its first frame."""
+    """An animated GIF; plain Image shows only its first frame.
+
+    The URL is resolved like Image's.
+    """
 
     url: str
     style: Style | None = None
 
     def _build(self) -> dv.Div:
-        return dv.DivGifImage(gif_url=_literal(self.url))
+        return dv.DivGifImage(gif_url=_literal(_asset(self.url)))
 
 
 @dataclass(frozen=True)
@@ -1181,9 +1210,17 @@ def _screen_variables(root: Component) -> list[ScreenVariable]:
     return list(declared.values())
 
 
-def render(root: Component) -> dict[str, Any]:
-    """Build the DivKit card payload a native shell renders."""
-    div = root.to_div()
+def render(root: Component, *, base: str = "") -> dict[str, Any]:
+    """Build the DivKit card payload a native shell renders.
+
+    `base` is the origin asset paths are resolved against — where the phone
+    reached this server. Without one they are left as written.
+    """
+    token = _base.set(base)
+    try:
+        div = root.to_div()
+    finally:
+        _base.reset(token)
     card = dv.DivData(
         log_id="card",
         states=[dv.DivDataState(state_id=0, div=div)],
