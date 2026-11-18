@@ -6,10 +6,8 @@ Run it from sdk-python/:
     uv run uvicorn examples.showcase:app --host 0.0.0.0 --port 8010 --reload
 
 then install the shell from the Releases page and give it this machine's
-address. Set BASE below to the same address: an Android emulator reaches
-this machine as 10.0.2.2, an iOS simulator as 127.0.0.1, and a real phone
-only by this machine's address on the network. Nothing below is in the
-app you installed — it is all this file.
+address, and set BASE below to the same thing. Nothing below is in the app
+you installed — it is all this file.
 
 Editing the file restarts the server, and the shell notices: a live
 screen's connection drops and comes back with the new render, and any
@@ -25,7 +23,9 @@ from pathlib import Path
 
 import latawiec as lt
 
-# Where this machine is, as the device sees it. An Android emulator:
+# Where this machine is, as the device sees it — for the one URL below this
+# app has to write out in full, because what an upload handler returns is
+# its own value and the server does not rewrite it. An Android emulator:
 # 10.0.2.2. An iOS simulator: 127.0.0.1. A real phone: this machine's
 # address on your network, the same one you typed into the shell.
 BASE = "http://10.0.2.2:8010"
@@ -53,16 +53,6 @@ HEADING = lt.Style(margin=lt.Edges(left=16, right=16, top=32, bottom=8))
 def note(text: str) -> lt.Component:
     """The line under each heading that says what to look at."""
     return lt.Text(text, size=14, color="#546E7A", style=GUTTER)
-
-
-def asset(name: str) -> str:
-    """An absolute URL for something this app serves.
-
-    Image and Video hand their URL straight to the platform's loader, so a
-    path like "/assets/kite.png" means nothing to it — unlike a tab icon,
-    which the shell fetches itself and which may stay relative.
-    """
-    return f"{BASE}/assets/{name}"
 
 
 # ---------------------------------------------------------------- start
@@ -101,8 +91,8 @@ def pieces() -> lt.Component:
         lt.Text("Text in sizes and weights", size=20, weight="bold", style=GUTTER),
         lt.Text("…and in a colour", color="#C2185B", style=GUTTER),
         lt.Row(
-            lt.Image(asset("home.png"), style=lt.Style(width=48, height=48)),
-            lt.Image(asset("shop.png"), style=lt.Style(width=48, height=48)),
+            lt.Image("/assets/home.png", style=lt.Style(width=48, height=48)),
+            lt.Image("/assets/shop.png", style=lt.Style(width=48, height=48)),
             style=GUTTER,
         ),
         note("A Row of Images, sized and served by this app."),
@@ -312,7 +302,7 @@ def device() -> lt.Component:
         note("Pan and zoom it: MapKit on iOS, a tile view on Android."),
         lt.Separator(style=GUTTER),
         lt.Text("A video", size=20, weight="bold", style=GUTTER),
-        lt.Video(asset("clip.mp4"), autoplay=True, loop=True, muted=True, style=GUTTER),
+        lt.Video("/assets/clip.mp4", autoplay=True, loop=True, muted=True, style=GUTTER),
         note("The platform player. DASH needs an Android build with -PwithVideo."),
         lt.Button("Something to buy", on_tap=lt.Navigate("shop"), style=GUTTER),
         lt.Spacer(height=32),
@@ -323,7 +313,7 @@ def device() -> lt.Component:
 def receive(file: lt.Upload) -> str:
     # A real app stores the bytes and returns their URL; this one echoes a
     # known image back so the picker has something to preview.
-    return f"{asset('home.png')}?bytes={len(file.data)}"
+    return f"{BASE}/assets/home.png?bytes={len(file.data)}"
 
 
 RECEIPTS: dict[str, str] = {}

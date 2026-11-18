@@ -44,6 +44,38 @@ def test_image_renders_to_divkit_image() -> None:
     assert div == {"type": "image", "image_url": "https://example.com/kite.png"}
 
 
+def test_a_path_resolves_against_the_server_and_a_url_does_not() -> None:
+    base = "http://10.0.2.2:8001"
+
+    paths = lt.render(
+        lt.Column(lt.Image("/assets/kite.png"), lt.GifImage("/a.gif"), lt.Video("/a.mp4")),
+        base=base,
+    )
+    items = paths["card"]["states"][0]["div"]["items"]
+    assert items[0]["image_url"] == f"{base}/assets/kite.png"
+    assert items[1]["gif_url"] == f"{base}/a.gif"
+    assert items[2]["video_sources"][0]["url"] == f"{base}/a.mp4"
+
+    # An image hosted anywhere else has to reach the loader as written.
+    elsewhere = lt.render(lt.Image("https://example.com/kite.png"), base=base)
+    assert elsewhere["card"]["states"][0]["div"]["image_url"] == "https://example.com/kite.png"
+
+
+def test_a_resolved_path_still_asks_to_be_evaluated() -> None:
+    base = "http://10.0.2.2:8001"
+
+    card = lt.render(lt.Image(lt.Expression("/avatars/@{id}.png")), base=base)
+
+    assert card["card"]["states"][0]["div"]["image_url"] == f"{base}/avatars/@{{id}}.png"
+
+
+def test_a_path_with_no_server_to_resolve_against_is_left_alone() -> None:
+    # render_screen() and the MCP preview have no request behind them.
+    card = lt.render(lt.Image("/assets/kite.png"))
+
+    assert card["card"]["states"][0]["div"]["image_url"] == "/assets/kite.png"
+
+
 def test_button_is_tappable_text_with_navigate_action() -> None:
     card = lt.render(lt.Button("Buy", on_tap=lt.Navigate("checkout")))
 

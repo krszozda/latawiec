@@ -171,13 +171,13 @@ def forget_kite(values: dict[str, str], ctx: lt.Context) -> None:
 
 
 @app.screen("clip")
-def clip(ctx: lt.Context) -> lt.Component:
-    # The emulator reaches the host by a different name than the simulator.
-    host = "10.0.2.2" if ctx.platform == "android" else "127.0.0.1"
+def clip() -> lt.Component:
+    # A path, not a URL: the emulator and the simulator reach this server by
+    # different names, and it fills in whichever one the phone used.
     return lt.Column(
         lt.Text("A short clip", size=28, weight="bold", style=lt.Style(margin=48)),
         lt.Video(
-            f"http://{host}:8001/assets/clip.mp4",
+            "/assets/clip.mp4",
             autoplay=True,
             loop=True,
             muted=True,

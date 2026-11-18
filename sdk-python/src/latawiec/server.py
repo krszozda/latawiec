@@ -175,6 +175,7 @@ class _Subscriber:
     params: dict[str, str]
     authorization: str | None
     device: _Device
+    base: str
 
 
 class _Device(TypedDict):
@@ -182,6 +183,16 @@ class _Device(TypedDict):
     platform: str
     timezone: str
     app_version: str
+
+
+def _asset_base(connection: Request | WebSocket) -> str:
+    """The origin a screen's asset paths resolve against: where the phone
+    reached this server, including any root_path it is mounted under.
+
+    A socket reports ws(s), which no image or video loader fetches.
+    """
+    base = str(connection.base_url).rstrip("/")
+    return base.replace("ws", "http", 1) if base.startswith("ws") else base
 
 
 def _device(headers: Mapping[str, str]) -> _Device:
@@ -437,7 +448,9 @@ class Latawiec(FastAPI):
             if not allowed:
                 await subscriber.socket.close(code=NOT_AUTHORIZED, reason="not authorized")
                 return
-            payload = await self._render(name, subscriber.params, user, subscriber.device)
+            payload = await self._render(
+                name, subscriber.params, user, subscriber.device, subscriber.base
+            )
             await subscriber.socket.send_json(payload)
         except (WebSocketDisconnect, RuntimeError):
             # A socket that died mid-send; its handler unregisters it.
@@ -555,11 +568,11 @@ class Latawiec(FastAPI):
         return None
 
     async def _render(
-        self, template: str, params: dict[str, str], user: Any, device: _Device
+        self, template: str, params: dict[str, str], user: Any, device: _Device, base: str
     ) -> dict[str, Any]:
         builder, wants_context = self._screens[template]
         args = (Context(user=user, params=params, **device),) if wants_context else ()
-        return render(await _call(builder, *args))
+        return render(await _call(builder, *args), base=base)
 
     async def _access(
         self, template: str | None, public: set[str], authorization: str | None
@@ -643,10 +656,12 @@ class Latawiec(FastAPI):
         template = resolved[0]
         headers = {
             "Cache-Control": _CACHE_HEADERS[self._cache_policy(template)],
-            # Renders may depend on the device context, so a shared HTTP
-            # cache must key on these headers too.
+            # Renders may depend on the device context, and asset paths on
+            # the scheme a proxy reports, so a shared HTTP cache must key on
+            # these headers too. The host it already keys on itself.
             "Vary": (
-                "Accept-Language, X-Latawiec-Platform, X-Latawiec-Timezone, X-Latawiec-App-Version"
+                "Accept-Language, X-Latawiec-Platform, X-Latawiec-Timezone, "
+                "X-Latawiec-App-Version, X-Forwarded-Proto"
             ),
         }
         # After this render the shell subscribes (live) or refetches (poll).
@@ -659,7 +674,9 @@ class Latawiec(FastAPI):
         # A changed fingerprint tells the shell to refetch the manifest.
         headers["X-Latawiec-Manifest"] = self._manifest_hash()
         return JSONResponse(
-            content=await self._render(template, resolved[1], user, _device(request.headers)),
+            content=await self._render(
+                template, resolved[1], user, _device(request.headers), _asset_base(request)
+            ),
             headers=headers,
         )
 
@@ -819,11 +836,12 @@ class Latawiec(FastAPI):
             await websocket.close(code=NO_SUCH_SCREEN, reason=f"no screen named {name!r}")
             return
         device = _device(websocket.headers)
-        await websocket.send_json(await self._render(resolved[0], resolved[1], user, device))
+        base = _asset_base(websocket)
+        await websocket.send_json(await self._render(resolved[0], resolved[1], user, device, base))
         # From here the socket doubles as the live subscription: every
         # app.refresh(name) re-renders and pushes to it.
         subscriber = _Subscriber(
-            websocket, resolved[1], websocket.headers.get("authorization"), device
+            websocket, resolved[1], websocket.headers.get("authorization"), device, base
         )
         waiting = self._subscribers.setdefault(resolved[0], [])
         waiting.append(subscriber)
