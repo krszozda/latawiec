@@ -189,7 +189,9 @@ App and server (Latawiec subclasses FastAPI):
   screen cache; guarded screens default to no-store, the rest to swr.
 - app.assets("static") serves that directory under /assets — tab icons and
   Image/GifImage/Video point there by path, e.g. Tab("home", "Home",
-  icon="/assets/home.png") and Image("/assets/home.png").
+  icon="/assets/home.png") and Image("/assets/home.png"). With version= set,
+  those URLs carry ?v=<version> and phones keep them until it changes;
+  without it every asset is revalidated, so a replaced file shows at once.
 - @app.auth registers the token check: it gets the bearer token (or None) and
   returns a truthy user object, or None to reject. Guarded screens/actions then
   need Authorization: Bearer <token>; register the login screen and its sign-in
