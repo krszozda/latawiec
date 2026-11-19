@@ -5,10 +5,12 @@ import hashlib
 import inspect
 import json
 import logging
+import os
 import re
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypedDict, cast
+from urllib.parse import parse_qs
 
 from fastapi import (
     FastAPI,
@@ -20,10 +22,11 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
-from latawiec.components import Component, Navigate, render
+from latawiec.components import Component, Navigate, render, versioned
 
 # WebSocket close codes in the app-defined 4000-4999 range, echoing HTTP.
 NO_SUCH_SCREEN = 4404
@@ -218,6 +221,34 @@ _CACHE_HEADERS: dict[CachePolicy, str] = {
 }
 
 
+class _Assets(StaticFiles):
+    """Static files that say how long they may be kept.
+
+    Starlette sends no Cache-Control at all, and each platform then decides
+    for itself. iOS decides generously: DivKit's images go through a default
+    URLSession, which heuristically keeps a 200 that carries no policy — the
+    behaviour ScreenViewController opts screens out of — so a replaced
+    picture goes unseen for days. Android asks every time: DivKit's
+    CoilDivImageLoader installs Coil's CacheControlCacheStrategy, which has
+    no such heuristic and revalidates when no policy says otherwise.
+
+    Hence a policy on every asset, and the year on a versioned one is what
+    lets an image survive offline there.
+    """
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        stamped = b"v" in parse_qs(scope["query_string"])
+        response.headers["Cache-Control"] = "max-age=31536000, immutable" if stamped else "no-cache"
+        return response
+
+
 class Latawiec(FastAPI):
     """An ASGI app that serves Latawiec screens; run it like any FastAPI app."""
 
@@ -278,8 +309,14 @@ class Latawiec(FastAPI):
         self.add_api_websocket_route("/ws/screens/{name:path}", self._screen_socket)
 
     def assets(self, directory: str) -> None:
-        """Serve a directory of static files (tab icons, images) under /assets."""
-        self.mount("/assets", StaticFiles(directory=directory), name="assets")
+        """Serve a directory of static files (tab icons, images) under /assets.
+
+        A URL with a `v` in it — the `?v=<version>` this app stamps on, or
+        one the app wrote itself — is kept on the phone for a year; anything
+        else is revalidated on every load, so an app with no version always
+        shows the current file.
+        """
+        self.mount("/assets", _Assets(directory=directory), name="assets")
 
     def auth(self, handler: AuthHandler) -> AuthHandler:
         """Register the token check; it gets the bearer token (or None) and
@@ -572,7 +609,7 @@ class Latawiec(FastAPI):
     ) -> dict[str, Any]:
         builder, wants_context = self._screens[template]
         args = (Context(user=user, params=params, **device),) if wants_context else ()
-        return render(await _call(builder, *args), base=base)
+        return render(await _call(builder, *args), base=base, version=self.content_version)
 
     async def _access(
         self, template: str | None, public: set[str], authorization: str | None
@@ -605,7 +642,14 @@ class Latawiec(FastAPI):
     def _manifest_payload(self) -> dict[str, Any]:
         return {
             "tabs": [
-                {"screen": tab.screen, "title": tab.title, "icon": tab.icon} for tab in self.tabs
+                {
+                    "screen": tab.screen,
+                    "title": tab.title,
+                    # The shells resolve an icon themselves, so the version
+                    # has to ride along in the manifest.
+                    "icon": versioned(tab.icon, self.content_version) if tab.icon else None,
+                }
+                for tab in self.tabs
             ],
             "theme": self._theme_payload(),
             "login": self.login,

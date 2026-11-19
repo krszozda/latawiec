@@ -144,6 +144,56 @@ def test_assets_serves_files_from_the_mounted_directory(tmp_path: Path) -> None:
     assert response.content == b"not really a png"
 
 
+def test_a_versioned_asset_is_kept_and_a_bare_one_revalidated(tmp_path: Path) -> None:
+    # Starlette sends no Cache-Control of its own, which is what leaves an
+    # image loader guessing.
+    (tmp_path / "home.png").write_bytes(b"not really a png")
+    serving = lt.Latawiec()
+    serving.assets(str(tmp_path))
+    client = TestClient(serving)
+
+    kept = client.get("/assets/home.png?v=2026.11.18")
+    revalidated = client.get("/assets/home.png")
+
+    assert kept.headers["Cache-Control"] == "max-age=31536000, immutable"
+    assert revalidated.headers["Cache-Control"] == "no-cache"
+
+
+def test_a_v_the_app_wrote_itself_is_kept_too(tmp_path: Path) -> None:
+    # The mount reads the request, not who built the URL: an app that
+    # versions its own assets gets the same year, next to a query of its own.
+    (tmp_path / "home.png").write_bytes(b"not really a png")
+    serving = lt.Latawiec()
+    serving.assets(str(tmp_path))
+    client = TestClient(serving)
+
+    assert client.get("/assets/home.png?v=7&w=90").headers["Cache-Control"] == (
+        "max-age=31536000, immutable"
+    )
+    # A query that promises nothing about the file's identity does not.
+    assert client.get("/assets/home.png?w=90").headers["Cache-Control"] == "no-cache"
+
+
+def test_the_server_stamps_the_assets_it_hands_out_with_its_version() -> None:
+    stamping = lt.Latawiec(
+        version="2026.11.18",
+        tabs=[lt.Tab("home", "Home", icon="/assets/home.png")],
+    )
+
+    @stamping.screen("home")
+    def home() -> lt.Component:
+        return lt.Image("/assets/home.png")
+
+    client = TestClient(stamping)
+    card = client.get("/screens/home").json()
+
+    assert card["card"]["states"][0]["div"]["image_url"] == (
+        "http://testserver/assets/home.png?v=2026.11.18"
+    )
+    # The shells resolve a tab icon themselves, so the manifest carries it.
+    assert client.get("/manifest").json()["tabs"][0]["icon"] == "/assets/home.png?v=2026.11.18"
+
+
 def guarded_app() -> lt.Latawiec:
     guarded = lt.Latawiec(login="signin")
 

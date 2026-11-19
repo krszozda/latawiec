@@ -209,6 +209,22 @@ _DANGEROUS = re.compile(r"\\|@\{")
 
 
 _base: ContextVar[str] = ContextVar("latawiec_base", default="")
+_version: ContextVar[str | None] = ContextVar("latawiec_version", default=None)
+
+
+def versioned(url: str, version: str | None) -> str:
+    """An /assets path stamped with the app's content version, which is how
+    a changed picture reaches a phone that kept the old one.
+
+    A URL that brought its own query is left as the app wrote it; a `v` of its
+    own is honoured by the mount all the same. The version is quoted because
+    it is free text: a space or a `#` in it would otherwise end the URL early,
+    or make one iOS rejects outright, dropping the very pictures this is here
+    to refresh.
+    """
+    if not version or not url.startswith("/assets/") or "?" in url:
+        return url
+    return f"{url}?v={quote(version, safe='')}"
 
 
 def _asset(url: str) -> str:
@@ -226,7 +242,7 @@ def _asset(url: str) -> str:
     base = _base.get()
     if not base or not url.startswith("/"):
         return url
-    resolved = f"{base}{url}"
+    resolved = f"{base}{versioned(url, _version.get())}"
     return Expression(resolved) if isinstance(url, Expression) else resolved
 
 
@@ -1210,17 +1226,21 @@ def _screen_variables(root: Component) -> list[ScreenVariable]:
     return list(declared.values())
 
 
-def render(root: Component, *, base: str = "") -> dict[str, Any]:
+def render(root: Component, *, base: str = "", version: str | None = None) -> dict[str, Any]:
     """Build the DivKit card payload a native shell renders.
 
     `base` is the origin asset paths are resolved against — where the phone
-    reached this server. Without one they are left as written.
+    reached this server. Without one they are left as written. `version` is
+    the app's content version, stamped onto /assets URLs so that bumping it
+    reaches pictures a phone has already kept.
     """
-    token = _base.set(base)
+    at_base = _base.set(base)
+    at_version = _version.set(version)
     try:
         div = root.to_div()
     finally:
-        _base.reset(token)
+        _base.reset(at_base)
+        _version.reset(at_version)
     card = dv.DivData(
         log_id="card",
         states=[dv.DivDataState(state_id=0, div=div)],

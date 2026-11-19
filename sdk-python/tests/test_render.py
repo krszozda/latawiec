@@ -69,6 +69,42 @@ def test_a_resolved_path_still_asks_to_be_evaluated() -> None:
     assert card["card"]["states"][0]["div"]["image_url"] == f"{base}/avatars/@{{id}}.png"
 
 
+def test_an_asset_url_carries_the_content_version() -> None:
+    base = "http://10.0.2.2:8001"
+
+    card = lt.render(lt.Image("/assets/kite.png"), base=base, version="2026.11.18")
+
+    assert card["card"]["states"][0]["div"]["image_url"] == (f"{base}/assets/kite.png?v=2026.11.18")
+
+
+def test_a_path_we_do_not_serve_ourselves_is_not_versioned() -> None:
+    base = "http://10.0.2.2:8001"
+
+    # A route of the app's own: its caching is the app's business.
+    card = lt.render(lt.Image("/photos/7.png"), base=base, version="2026.11.18")
+
+    assert card["card"]["states"][0]["div"]["image_url"] == f"{base}/photos/7.png"
+
+
+def test_an_asset_url_the_app_put_a_query_on_is_left_as_written() -> None:
+    base = "http://10.0.2.2:8001"
+
+    card = lt.render(lt.Image("/assets/kite.png?w=90"), base=base, version="2026.11.18")
+
+    assert card["card"]["states"][0]["div"]["image_url"] == f"{base}/assets/kite.png?w=90"
+
+
+def test_a_version_with_spaces_in_it_still_makes_one_url() -> None:
+    # A content version is free text, and iOS drops a URL it cannot parse.
+    base = "http://10.0.2.2:8001"
+
+    card = lt.render(lt.Image("/assets/kite.png"), base=base, version="2026.11.18 hotfix #2")
+
+    assert card["card"]["states"][0]["div"]["image_url"] == (
+        f"{base}/assets/kite.png?v=2026.11.18%20hotfix%20%232"
+    )
+
+
 def test_a_path_with_no_server_to_resolve_against_is_left_alone() -> None:
     # render_screen() and the MCP preview have no request behind them.
     card = lt.render(lt.Image("/assets/kite.png"))

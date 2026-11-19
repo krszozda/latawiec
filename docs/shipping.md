@@ -25,6 +25,16 @@ the URL must be `https` — release builds refuse plain HTTP. `version` is
 your content version, kept in `app.content_version`, apart from FastAPI's
 own `app.version`.
 
+`version` also says how long a phone may keep your pictures. An `/assets`
+path the server hands out — in a card, and in the manifest's tab icons —
+carries `?v=<version>`, and the mount keeps any `/assets` URL with a `v` in
+it for a year: the image survives offline, costs nothing on a revisit, and
+replacing a file plus bumping the version pushes it, the same bump that
+drops cached screens. A `v` you wrote yourself counts the same. Every other
+`/assets` URL — with no `version` set, or with a query of your own that has
+no `v` — is revalidated on every load instead: correct and always current,
+which is what the dev loop wants, but not available offline.
+
 That `https` matters to one more thing: `Image`, `GifImage` and `Video`
 resolve a path like `/assets/logo.png` against the address the request
 arrived on, so the server has to see the scheme its clients used. Behind a
