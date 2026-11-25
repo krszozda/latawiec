@@ -85,7 +85,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // Before anything is delivered, or a cold-start tap would be lost.
         UNUserNotificationCenter.current().delegate = self
         // The chrome may change while the app is away; a foreground refetch
-        // picks it up (the same-tabs case leaves the stacks alone).
+        // picks it up, leaving the stack of every tab that is still there.
         NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,
@@ -323,23 +323,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                     bar: manifest?.theme?.bar
                 )
                 if let manifest, !manifest.tabs.isEmpty {
-                    let roots = manifest.tabs.map(\.screen)
-                    // The same roots re-applied mid-session must not reset
-                    // the stacks: refresh what the bar shows, in place.
-                    if roots == self.tabScreens,
-                       let tabBar = self.window?.rootViewController as? UITabBarController,
-                       let controllers = tabBar.viewControllers {
-                        for (index, tab) in manifest.tabs.enumerated()
-                        where index < controllers.count {
-                            controllers[index].tabBarItem.title = tab.title
-                            if let icon = tab.icon {
-                                Self.loadIcon(at: icon, into: controllers[index].tabBarItem)
-                            }
-                        }
-                    } else {
-                        self.tabScreens = roots
-                        self.window?.rootViewController = Self.tabBarController(for: manifest)
-                    }
+                    self.showTabs(manifest)
                 } else {
                     if manifest == nil {
                         // A typed address that never answered once is most
@@ -358,8 +342,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                         self.window?.rootViewController = Self.fallbackRoot()
                     }
                 }
-                // Stacks kept from before (same tabs, or none) still wear
-                // the old theme; fresh roots were styled as they were built.
+                // Everything on screen — a bar just built, and the stacks
+                // kept from before — wears the theme this manifest brought.
                 Chrome.restyle(self.window?.rootViewController)
                 self.manifestApplied = true
                 if let screen = self.pendingDeepLink {
@@ -377,20 +361,67 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         StackController(rootViewController: ScreenViewController(screen: "home"))
     }
 
-    private static func tabBarController(for manifest: Manifest) -> UITabBarController {
-        let controller = UITabBarController()
+    /// Puts the manifest's tabs on the bar, keeping the stack of every tab
+    /// that is still there — and the user on the one they were on, wherever
+    /// it now sits, so a tab added or dropped server-side does not throw
+    /// them back to the first one. A first build, and a user whose tab is
+    /// gone, land on the first tab.
+    private func showTabs(_ manifest: Manifest) {
+        let tabBar = window?.rootViewController as? UITabBarController
+        // Each stack is handed out once, in bar order: two tabs on one
+        // screen hold two stacks, and keying by screen alone would put the
+        // same controller in viewControllers twice, which UIKit does not
+        // support.
+        var stacks = Array(zip(tabScreens, tabBar?.viewControllers ?? []))
+        var wasOn: (index: Int, screen: String)?
+        if let tabBar, tabScreens.indices.contains(tabBar.selectedIndex) {
+            wasOn = (tabBar.selectedIndex, tabScreens[tabBar.selectedIndex])
+        }
+        let controller = tabBar ?? UITabBarController()
         controller.viewControllers = manifest.tabs.map { tab in
-            let navigation = StackController(
-                rootViewController: ScreenViewController(screen: tab.screen)
-            )
+            let navigation: UIViewController
+            if let held = stacks.firstIndex(where: { $0.0 == tab.screen }) {
+                navigation = stacks.remove(at: held).1
+            } else {
+                navigation = StackController(
+                    rootViewController: ScreenViewController(screen: tab.screen)
+                )
+            }
             navigation.tabBarItem.title = tab.title
             if let icon = tab.icon {
-                loadIcon(at: icon, into: navigation.tabBarItem)
+                Self.loadIcon(at: icon, into: navigation.tabBarItem)
+            } else {
+                // A kept stack wears the icon from before, which a manifest
+                // that dropped it must not leave on the bar. Only then:
+                // blanking it on every refresh would make every icon blink.
+                navigation.tabBarItem.image = nil
             }
             return navigation
         }
-        Chrome.style(controller.tabBar)
-        return controller
+        tabScreens = manifest.tabs.map(\.screen)
+        // Assigning viewControllers leaves the selection to UIKit, which
+        // clamps it; say where the user belongs either way.
+        var kept: Int?
+        if let was = wasOn {
+            // Their position first, their screen second, as on Android:
+            // two tabs may root the same screen, and the screen alone
+            // would move a user on the second one onto the first.
+            if tabScreens.indices.contains(was.index), tabScreens[was.index] == was.screen {
+                kept = was.index
+            } else {
+                kept = tabScreens.firstIndex(of: was.screen)
+            }
+        }
+        controller.selectedIndex = kept ?? 0
+        // Their tab is gone, so the first one takes over — at its root, as
+        // Android's showRoot leaves it, not wherever it was left standing.
+        if kept == nil {
+            (controller.selectedViewController as? UINavigationController)?
+                .popToRootViewController(animated: false)
+        }
+        if window?.rootViewController !== controller {
+            window?.rootViewController = controller
+        }
     }
 
     private static func loadIcon(at path: String, into item: UITabBarItem) {

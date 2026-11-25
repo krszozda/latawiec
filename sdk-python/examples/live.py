@@ -20,10 +20,27 @@ count = 0
 
 # The chatbot use case, miniaturized: an action mutates the tabs and the
 # shells pick the new bar up mid-session from the manifest fingerprint
-# riding on every screen response. The UI tests drive these two directly.
+# riding on every screen response. The UI tests drive the four below
+# directly. Tabs belong to the app, not to a platform, so unlike the
+# per-platform state further down these cannot be shared: run one suite
+# at a time against a server, or they will reshape each other's bar.
 @app.action("grow")
 def grow(values: dict[str, str]) -> None:
     app.tabs = (lt.Tab("home", "Home"), lt.Tab("clock", "Clock"))
+
+
+@app.action("insert")
+def insert(values: dict[str, str]) -> None:
+    # The clock keeps its screen and loses its place in the bar, which is
+    # what the shells must not turn into a jump back to the first tab.
+    app.tabs = (lt.Tab("home", "Home"), lt.Tab("feed", "Feed"), lt.Tab("clock", "Clock"))
+
+
+@app.action("drop")
+def drop(values: dict[str, str]) -> None:
+    # The clock goes while two tabs stay, so a shell that leaves the index
+    # to the platform lands the user on Feed instead of the first tab.
+    app.tabs = (lt.Tab("home", "Home"), lt.Tab("feed", "Feed"))
 
 
 @app.action("reset")

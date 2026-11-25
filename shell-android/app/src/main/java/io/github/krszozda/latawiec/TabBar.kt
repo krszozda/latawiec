@@ -48,15 +48,25 @@ internal class TabBar(private val host: MainActivity) : BottomNavigationView(hos
     }
 
     /**
-     * Shows [tabs], keeping the selection when they root the same screens as
-     * before — which is what a manifest refresh mid-session usually brings.
-     * Answers whether the roots changed, since a new set leaves the host
-     * showing a screen no tab roots any more.
+     * Shows [tabs], keeping the user on the tab they were on whenever that
+     * tab is still in the set — wherever it now sits, so a tab added or
+     * dropped server-side does not throw them back to the first one.
+     * Answers whether the first tab takes over, which it does when no tab
+     * of the new set holds the user: either theirs is gone, or there was
+     * no bar before this build.
      */
     fun show(tabs: List<Tab>, accent: String, bar: Int?): Boolean {
         val screens = tabs.map { it.screen }
-        val rootsChanged = screens != roots
-        val selected = if (rootsChanged) 0 else selectedItemId
+        // An empty bar reports item 0, so a first build finds nothing here.
+        val was = roots.getOrNull(selectedItemId)
+        // Their position first, their screen second: two tabs may root the
+        // same screen, and the screen alone would move a user on the second
+        // one onto the first.
+        val selected = when {
+            was == null -> -1
+            screens.getOrNull(selectedItemId) == was -> selectedItemId
+            else -> screens.indexOf(was)
+        }
         // menu.clear() resets the bar's selection, so restoring it below
         // fires a change event — which must not reach the old listener.
         setOnItemSelectedListener(null)
@@ -69,14 +79,14 @@ internal class TabBar(private val host: MainActivity) : BottomNavigationView(hos
         if (bar != null) setBackgroundColor(bar) else background = platformBackground
         tint(themeColor(accent, "accent"), bar)
         // Selection before the listener: restoring it must not re-navigate.
-        selectedItemId = selected
+        selectedItemId = selected.coerceAtLeast(0)
         roots = screens
         listen()
         // Without this, Material routes a re-tap of the selected item to the
         // selected listener, which would reset the tab.
         setOnItemReselectedListener {}
         visibility = View.VISIBLE
-        return rootsChanged
+        return selected < 0
     }
 
     /** A one-screen app has no bar. */

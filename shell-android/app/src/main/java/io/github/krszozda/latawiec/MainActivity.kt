@@ -668,9 +668,11 @@ class MainActivity : AppCompatActivity() {
             if (hadTabs || screens.isEmpty()) showRoot("home")
             return
         }
-        val rootsChanged = tabBar.show(manifest.tabs, manifest.accent, themeColor(manifest.bar, "bar"))
-        // The same roots re-applied mid-session must not reset the stack.
-        if (rootsChanged) showRoot(manifest.tabs[0].screen)
+        val firstTabTakesOver =
+            tabBar.show(manifest.tabs, manifest.accent, themeColor(manifest.bar, "bar"))
+        // A tab the user is still on keeps the stack they are in, whether
+        // the set came back unchanged or with a tab added or dropped.
+        if (firstTabTakesOver) showRoot(manifest.tabs[0].screen)
     }
 
     /**
