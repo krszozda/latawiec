@@ -173,13 +173,16 @@ App and server (Latawiec subclasses FastAPI):
   has the payload shapes.
 - Latawiec(tabs=[Tab(screen, title, icon=None)], theme=Theme(accent="#2962FF",
   background=None, bar=None),
-  login=None, version=None, dev=True, app_links=None) declares the native
+  login=None, version=None, dev=True, preview=None, app_links=None) declares the native
   bottom bar, chrome colors (`background` behind screens, `bar` for the
   tab bar and iOS's pushed-screen bar; unset, both follow the system's
   light or dark mode, so a dark-only app sets them), the screen shown on 401, the content version (a
   change tells shells to drop cached screens), and dev mode (deploy with
   dev=False: shells then fetch screens over GET and cache them); shells read
-  GET /manifest. app.tabs/theme/login may be reassigned at runtime: a
+  GET /manifest. preview follows dev: GET /preview draws the app's screens in
+  a browser with DivKit's web build, walking Navigate and Submit, so a change
+  can be looked at without a device; a dev=False app takes preview=True to
+  keep it. app.tabs/theme/login may be reassigned at runtime: a
   fingerprint on every response lets the shells pick the new chrome up
   mid-session (add a tab from a handler and the bar rebuilds, no restart).
   app_links=AppLinks(android_package, android_fingerprints,

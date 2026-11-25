@@ -184,6 +184,22 @@ uv sync
 uv run pytest
 ```
 
+An app in dev mode also serves `/preview`: open `http://localhost:8000/preview` and the
+browser draws its screens from the same payload the shells get, using DivKit's own web
+build. Taps go as far as this server does — `Navigate` walks the flow, `Submit` posts to
+the handler, and a sign-in that answers a `Grant` hands the page a token it carries from
+then on, so guarded screens render too. A screen with parameters asks for them before it
+is fetched. The actions that need a device (share, camera, biometrics, purchases) say so
+in the log beside the screen, as do render errors.
+
+It is a look, not a verdict: the shells render the same JSON with their own DivKit, so
+what matters still gets checked on a device, and a `Map` or any other `DivCustom` appears
+only there. One thing differs on purpose — a `live=True` screen is refetched every couple
+of seconds instead of being pushed, because a browser cannot put this app's headers on a
+WebSocket. The renderer itself comes from a CDN, pinned and checked against a hash, so
+the first load needs network access. A deployed app serves no such page; a
+production-mode app you are working on takes `preview=True`.
+
 No Android toolchain? Grab `latawiec-shell.apk` from the
 [latest release](https://github.com/krszozda/latawiec/releases/latest), install
 it, and it asks for your server's URL on first start — that plus

@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Latawiec preview</title>
+<!-- DivKit's own web renderer, pinned to the version the shells carry, so
+     what this page draws comes from the same JSON and the same vendor. The
+     hashes keep that promise: this page runs on the same origin as a dev's
+     session, so a CDN that answered with something else gets refused. -->
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@divkitframework/divkit@33.10.0/dist/client.css"
+      integrity="sha384-tPvJMEfxxyTK1AUUbwb+pHqbcY0myErG4bSuEe9lYOzPxKQbsprMRmjUHwflI6ym"
+      crossorigin="anonymous">
+<script type="importmap">
+{
+  "imports": {
+    "divkit": "https://cdn.jsdelivr.net/npm/@divkitframework/divkit@33.10.0/dist/esm/client.mjs"
+  },
+  "integrity": {
+    "https://cdn.jsdelivr.net/npm/@divkitframework/divkit@33.10.0/dist/esm/client.mjs":
+      "sha384-fKBg+cUO9vWR4F5dcfBmeXyzLFFE9cqJGJdq3NrWs0rFvB1VSqEbg7BR/48WU78x"
+  }
+}
+</script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #11161c;
+    --dim: #5c6773;
+    --line: #d9dee5;
+    --page: #f3f5f8;
+    --panel: #ffffff;
+    --accent: #2962ff;
+    --warn: #a4601a;
+    --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e7ecf2;
+      --dim: #98a3b0;
+      --line: #2b323b;
+      --page: #15181d;
+      --panel: #1c2026;
+      --accent: #7fa2ff;
+      --warn: #e0a861;
+      --bad: #f2897f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 220px 1fr 340px;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    background: var(--page);
+    color: var(--ink);
+    font: 14px/1.45 system-ui, sans-serif;
+  }
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header strong { margin-right: auto; font-weight: 600; }
+  input, select, button {
+    font: inherit;
+    color: inherit;
+    background: var(--page);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  #path { width: 280px; font-family: ui-monospace, monospace; }
+  nav, #log { overflow-y: auto; padding: 12px; }
+  nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+  }
+  nav button {
+    text-align: left;
+    background: none;
+    border-color: transparent;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+  }
+  nav button[aria-current="true"] { background: var(--page); border-color: var(--accent); }
+  #stage { display: grid; place-items: center; overflow: auto; padding: 24px; }
+  /* A phone's shape, so a layout that only works on a wide screen shows
+     itself here rather than on a device. */
+  #frame {
+    width: 390px;
+    height: 780px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    box-shadow: 0 10px 40px rgb(0 0 0 / 0.18);
+    background: #fff;
+  }
+  #log { background: var(--panel); border-left: 1px solid var(--line); }
+  #log p {
+    margin: 0 0 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #log p.note { color: var(--dim); }
+  #log p.warn { color: var(--warn); }
+  #log p.error { color: var(--bad); }
+  .hint { color: var(--dim); padding: 12px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Latawiec preview</strong>
+  <input id="path" spellcheck="false" aria-label="screen path">
+  <select id="platform" aria-label="platform to render for">
+    <option value="android">android</option>
+    <option value="ios">ios</option>
+  </select>
+  <select id="theme" aria-label="theme to render in">
+    <option value="light">light</option>
+    <option value="dark">dark</option>
+  </select>
+  <button id="back">Back</button>
+  <button id="reload">Reload</button>
+</header>
+<nav id="screens"></nav>
+<div id="stage"><div id="frame"><div id="card"></div></div></div>
+<section id="log">
+  <p class="hint">Errors, and the actions only a device can carry out, land here.</p>
+</section>
+<script id="data" type="application/json">__LATAWIEC_PREVIEW_DATA__</script>
+<script type="module">
+const data = JSON.parse(document.getElementById("data").textContent);
+const card = document.getElementById("card");
+const frame = document.getElementById("frame");
+const logs = document.getElementById("log");
+const path = document.getElementById("path");
+const platform = document.getElementById("platform");
+const theme = document.getElementById("theme");
+const screens = document.getElementById("screens");
+
+let render = null;
+let instance = null;
+let renders = 0;
+let shown = null;
+let token = null;
+let timer = null;
+let asked = 0;
+let refreshing = null;
+let said = null;
+let repeats = 0;
+const stack = [];
+const LIVE_SECONDS = 2;
+// What the shells let a tap leave the app for; anything else they refuse,
+// and a javascript: link would run here with the session token.
+const OPENABLE = ["http", "https", "mailto", "tel", "sms"];
+
+function say(kind, text) {
+  const at = new Date().toLocaleTimeString();
+  // A warning on a screen that refetches every couple of seconds would
+  // otherwise bury everything before it.
+  if (said && said.dataset.text === text) {
+    said.textContent = `${at}  ${text}  (×${++repeats})`;
+    return;
+  }
+  const line = document.createElement("p");
+  line.className = kind;
+  line.dataset.text = text;
+  line.textContent = `${at}  ${text}`;
+  logs.prepend(line);
+  said = line;
+  repeats = 1;
+}
+
+try {
+  ({ render } = await import("divkit"));
+} catch (error) {
+  say("error", `the DivKit renderer did not load (${error}). This page draws screens with
+DivKit's own web build from a CDN, so the first load needs network access.`);
+}
+
+for (const name of data.screens) {
+  const button = document.createElement("button");
+  button.textContent = name;
+  button.onclick = () => show(name, { fresh: true });
+  screens.append(button);
+}
+
+function mark(name) {
+  for (const button of screens.children) {
+    button.setAttribute("aria-current", String(button.textContent === name));
+  }
+}
+
+// What the shells put on every request: the device context the builders
+// read through ctx, and the granted token once an action hands one over.
+// No app version, because a browser is not a build of the app.
+function ask(where, init = {}) {
+  const headers = {
+    "X-Latawiec-Platform": platform.value,
+    "X-Latawiec-Timezone": Intl.DateTimeFormat().resolvedOptions().timeZone,
+    ...init.headers,
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(where, { ...init, headers });
+}
+
+async function reason(response) {
+  const body = await response.text();
+  try {
+    return JSON.parse(body).detail ?? body;
+  } catch {
+    return body;
+  }
+}
+
+function stopUpdates() {
+  clearTimeout(timer);
+  timer = null;
+}
+
+// A screen that moves on a device has to move here, or a flow that works
+// reads as dead. The shells subscribe to a live screen over a WebSocket;
+// a browser cannot put this app's platform header or its token on one, so
+// a live screen is refetched here instead and the log says so.
+function keepUpdated(name, response, arriving) {
+  const live = response.headers.get("X-Latawiec-Live");
+  if (live && arriving) {
+    say(
+      "note",
+      `${name} is live: a device is pushed each change, this refetches every ${LIVE_SECONDS}s`,
+    );
+  }
+  const seconds = Number(response.headers.get("X-Latawiec-Refresh")) || (live ? LIVE_SECONDS : 0);
+  refreshing = seconds ? { name, seconds } : null;
+  if (seconds) timer = setTimeout(() => show(name), seconds * 1000);
+}
+
+// A fetch that failed must not end the screen's beat: the dev server
+// restarting is the usual reason, and a shell comes back by itself.
+function retry(name) {
+  if (refreshing?.name === name) {
+    timer = setTimeout(() => show(name), refreshing.seconds * 1000);
+  }
+}
+
+async function show(name, { fresh = false } = {}) {
+  if (!render) return;
+  if (fresh) stack.length = 0;
+  stopUpdates();
+  path.value = name;
+  mark(name);
+  if (name.includes("{")) {
+    say("note", `${name} takes parameters: put real ones in the box above and press Enter`);
+    path.focus();
+    return;
+  }
+  // Asked for another screen while this one was in flight: whoever asked
+  // last owns the frame, so an answer nobody is waiting for is dropped.
+  const mine = ++asked;
+  let response;
+  try {
+    response = await ask(`screens/${name}`);
+  } catch (error) {
+    // The dev server restarting mid-edit lands here, so name the screen.
+    if (mine === asked) {
+      say("error", `${name} → ${error}`);
+      retry(name);
+    }
+    return;
+  }
+  if (mine !== asked) return;
+  if (response.status === 401 && data.login && name !== data.login) {
+    // The token that was refused is no good for the next request either.
+    token = null;
+    say("note", `${name} is behind the sign-in; opening ${data.login}`);
+    show(data.login);
+    return;
+  }
+  if (!response.ok) {
+    say("error", `${name} → HTTP ${response.status}: ${await reason(response)}`);
+    retry(name);
+    return;
+  }
+  const payload = await response.json();
+  if (mine !== asked) return;
+  const arriving = shown !== name;
+  draw(name, payload);
+  keepUpdated(name, response, arriving);
+}
+
+function draw(name, payload) {
+  instance?.$destroy();
+  card.replaceChildren();
+  // Text with no color of its own inherits the frame's, the way it takes
+  // the platform's primary color on a device — and without this it would
+  // inherit this page's instead and vanish into the screen behind it.
+  const dark = theme.value === "dark";
+  frame.style.background = data.background ?? (dark ? "#101216" : "#ffffff");
+  frame.style.color = dark ? "#ffffff" : "#000000";
+  instance = render({
+    target: card,
+    json: payload,
+    id: `preview-${++renders}`,
+    platform: "touch",
+    theme: theme.value,
+    onError: ({ error }) =>
+      say(error.level === "warn" ? "warn" : "error", `${name}: ${error.message}`),
+    onCustomAction: act,
+  });
+  // A live or polled screen redraws where the reader left it; arriving at
+  // a screen starts at the top.
+  if (shown !== name) frame.scrollTop = 0;
+  shown = name;
+}
+
+// Every Latawiec tap action is a latawiec:// url, which the web renderer
+// hands over instead of following. A browser can honestly do the ones
+// that only talk to this server, end the session, or open a link.
+function act(action) {
+  const url = new URL(action.url);
+  const query = url.searchParams;
+  switch (url.hostname) {
+    case "navigate": {
+      const screen = query.get("screen");
+      if (screen) {
+        stack.push(path.value);
+        show(screen);
+      }
+      return;
+    }
+    case "submit":
+      submit(query);
+      return;
+    case "signout":
+      // Without this the page would go on rendering guarded screens as
+      // the user who just left.
+      token = null;
+      say("note", "signed out; the token is gone, as are a device's cached screens");
+      show(query.get("screen") ?? data.login ?? "home", { fresh: true });
+      return;
+    case "open": {
+      const target = query.get("url") ?? "";
+      if (!OPENABLE.includes(target.split(":")[0].toLowerCase())) {
+        say("warn", `open: a device refuses this link — ${target}`);
+        return;
+      }
+      say("note", `open: ${target}`);
+      window.open(target, "_blank", "noopener");
+      return;
+    }
+    default:
+      say("note", `${url.hostname}: a device does this one — ${action.url}`);
+  }
+}
+
+async function submit(query) {
+  const name = query.get("action");
+  const values = {};
+  for (const [key, value] of query) {
+    if (key !== "action") values[key] = value;
+  }
+  let response;
+  try {
+    response = await ask(`actions/${name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values),
+    });
+  } catch (error) {
+    say("error", `${name} → ${error}`);
+    return;
+  }
+  if (response.status === 401 && data.login) {
+    // The same bounce a screen gets: an expired token is a sign-in, not
+    // a broken action.
+    token = null;
+    say("note", `${name} wants a signed-in user; opening ${data.login}`);
+    show(data.login);
+    return;
+  }
+  if (!response.ok) {
+    say("error", `${name} → HTTP ${response.status}: ${await reason(response)}`);
+    return;
+  }
+  const result = await response.json();
+  const sent = Object.keys(values);
+  say("note", `${name} sent ${sent.length ? sent.join(", ") : "nothing"}`);
+  if (result.token) {
+    token = result.token;
+    say("note", "signed in; every request from here carries the token");
+  }
+  // A handler that answers no screen leaves the shells where they are, so
+  // this stays put too: a live or polled screen is what brings new
+  // content, and a screen that is neither does not move on a device.
+  if (result.navigate) {
+    stack.push(path.value);
+    show(result.navigate);
+  }
+}
+
+document.getElementById("reload").onclick = () => show(path.value);
+document.getElementById("back").onclick = () => {
+  const previous = stack.pop();
+  if (previous) show(previous);
+};
+path.onchange = () => show(path.value, { fresh: true });
+platform.onchange = () => show(path.value);
+theme.onchange = () => show(path.value);
+
+if (data.screens.length) show(data.screens[0], { fresh: true });
+else say("note", "this app registers no screens yet");
+</script>
+</body>
+</html>
