@@ -9,6 +9,7 @@ import os
 import re
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Annotated, Any, Literal, TypedDict, cast
 from urllib.parse import parse_qs
 
@@ -22,7 +23,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
@@ -260,6 +261,7 @@ class Latawiec(FastAPI):
         login: str | None = None,
         version: str | None = None,
         dev: bool = True,
+        preview: bool | None = None,
         app_links: AppLinks | None = None,
         max_upload_mb: int = 10,
         **kwargs: Any,
@@ -282,6 +284,11 @@ class Latawiec(FastAPI):
         self.dev = dev
         """Dev keeps the live-reload sockets; deploy with dev=False so shells
         fetch screens over GET and cache them per policy."""
+        # /preview, the page that draws this app's screens in a browser,
+        # follows dev: a deployed app publishes neither the list of its
+        # screens nor a page for walking them, and a prod-mode app being
+        # worked on takes preview=True.
+        serve_preview = dev if preview is None else preview
         self._auth: AuthHandler | None = None
         self._device_handler: tuple[DeviceHandler, bool] | None = None
         self._upload_handler: tuple[UploadHandler, bool] | None = None
@@ -304,6 +311,12 @@ class Latawiec(FastAPI):
         self.add_api_route("/actions/{name}", self._action_result, methods=["POST"])
         self.add_api_route("/devices", self._register_device, methods=["POST"])
         self.add_api_route("/uploads", self._receive_upload, methods=["POST"])
+        if serve_preview:
+            # Out of the schema: it is a page for a person, not part of the
+            # API the shells and /docs describe.
+            self.add_api_route(
+                "/preview", self._preview, response_class=HTMLResponse, include_in_schema=False
+            )
         self.add_api_route("/.well-known/assetlinks.json", self._assetlinks)
         self.add_api_route("/.well-known/apple-app-site-association", self._apple_association)
         self.add_api_websocket_route("/ws/screens/{name:path}", self._screen_socket)
@@ -679,6 +692,29 @@ class Latawiec(FastAPI):
             payload,
             headers={"X-Latawiec-Manifest": self._manifest_hash(payload)},
         )
+
+    def _preview(self) -> HTMLResponse:
+        """A page that draws this app's screens in the browser, so a change
+        can be looked at without building a shell onto a device.
+
+        It renders the same payload the shells get, with DivKit's own web
+        build. Read from disk per request, so editing the page shows up on a
+        browser reload.
+        """
+        page = (Path(__file__).parent / "preview.html").read_text(encoding="utf-8")
+        data = json.dumps(
+            {
+                "screens": list(self.screen_names),
+                "background": self.theme.background,
+                # Where the page sends a reader that a 401 turned away.
+                "login": self.login,
+            }
+        )
+        # A screen name is free text, and HTML parses the tag that carries
+        # this before any JSON does: a "</script>" in a name would end it,
+        # and a "<!--<script" would stop the real end tag from closing it.
+        # Neither can happen if no name brings a "<" along.
+        return HTMLResponse(page.replace("__LATAWIEC_PREVIEW_DATA__", data.replace("<", "\\u003c")))
 
     async def _screen_payload(
         self,

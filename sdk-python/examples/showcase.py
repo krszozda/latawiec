@@ -35,6 +35,8 @@ app = lt.Latawiec(
     # cache only exist here, because in dev mode every screen rides a
     # WebSocket instead and there is nothing to pull.
     dev=False,
+    # A demo is for looking at, so keep /preview even in production mode.
+    preview=True,
     version="1",
     tabs=[
         lt.Tab("start", "Start", icon="/assets/home.png"),
