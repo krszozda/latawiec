@@ -12,6 +12,7 @@ import latawiec as lt
 CLIENT_ROUTES = (
     ("GET", "/manifest"),
     ("GET", "/screens/{name}"),
+    ("POST", "/actions/{name}"),
     ("WS", "/ws/screens/{name}"),
 )
 

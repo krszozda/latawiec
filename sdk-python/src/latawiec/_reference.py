@@ -113,6 +113,14 @@ App and server (Latawiec subclasses FastAPI):
 - WS /ws/screens/{name} sends the card on connect and holds the socket.
 - @app.action(name) registers a Submit handler: it gets the submitted values
   as dict[str, str] and may return Navigate to send the shell onward.
+- POST /actions/{name} is how Submit, LoadMore, Unlock and Purchase reach that
+  handler. The body is required, and it is a flat JSON object whose values are
+  all strings — {"email": "kite@example.com"} — so a number or a null in it
+  answers 422; the shells send what DivKit evaluated, which is always a string,
+  and a client of your own does the same. The answer is
+  {"navigate": "<screen>"}, or {"navigate": null} when the handler returned
+  nothing, and on a null the shells stay where they are; a Grant adds "token".
+  An unknown action answers 404, a guarded one without a bearer token 401.
 - @app.screen(..., refreshable=True) adds the pull-to-refresh gesture in
   production (on iOS the screen's root must scroll, e.g. a Gallery).
 - Purchase(product, action) runs the store's buy flow and submits `action`

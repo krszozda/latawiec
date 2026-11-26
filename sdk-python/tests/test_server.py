@@ -61,6 +61,15 @@ def test_unknown_action_is_404() -> None:
     assert client.post("/actions/nope", json={}).status_code == 404
 
 
+def test_an_action_takes_a_body_of_strings() -> None:
+    """What the DSL reference promises a client of its own: the shells post
+    what DivKit evaluated, and that is always a string.
+    """
+    assert client.post("/actions/log", json={"count": 3}).status_code == 422
+    assert client.post("/actions/log", json={"count": None}).status_code == 422
+    assert client.post("/actions/log").status_code == 422
+
+
 def test_screen_socket_sends_rendered_card_on_connect() -> None:
     with client.websocket_connect("/ws/screens/home") as socket:
         payload = socket.receive_json()
