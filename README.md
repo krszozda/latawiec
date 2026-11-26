@@ -166,9 +166,13 @@ Python DSL (sdk-python/)  →  DivKit JSON over HTTP/WebSocket  →  native shel
 
 ## For coding agents
 
-The `latawiec[mcp]` extra ships an MCP server (`latawiec-mcp`, stdio) so agents can learn
-the DSL (`reference`), list an app's screens, and render any screen to its DivKit JSON
-without a server or a phone. Register it from `sdk-python/`:
+The DSL on one page is `latawiec.reference()`, in the package itself, so
+`python -c "import latawiec; print(latawiec.reference())"` is what an agent reads before
+writing its first screen — no extra, no server.
+
+The `latawiec[mcp]` extra ships an MCP server (`latawiec-mcp`, stdio) that hands over the
+same page (`reference`) and adds two tools of its own: list an app's screens, and render
+any screen to its DivKit JSON without a server or a phone. Register it from `sdk-python/`:
 
 ```json
 { "mcpServers": { "latawiec": { "command": "uv", "args": ["run", "latawiec-mcp"] } } }

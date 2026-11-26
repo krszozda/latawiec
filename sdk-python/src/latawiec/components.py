@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import mimetypes
 import re
+import warnings
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 from urllib.parse import quote
 
-import pydivkit as dv
-from pydivkit.core import Expr
+with warnings.catch_warnings():
+    # Six of pydivkit's generated docstrings carry a "\|", which the compiler
+    # calls an invalid escape sequence as it writes the bytecode — once per
+    # install. The files belong to a dependency, so nobody downstream can fix
+    # them, while a first `import latawiec` answering with six warnings reads
+    # as a fault in the app that typed it. This is the package's only pydivkit
+    # import, so compiling it here covers them all, and every other module
+    # stays outside the filter and keeps reporting its own.
+    warnings.simplefilter("ignore", SyntaxWarning)
+    import pydivkit as dv
+    from pydivkit.core import Expr
 
 Size = int | Literal["fill", "wrap"]
 HorizontalAlign = Literal["left", "center", "right"]
