@@ -1,5 +1,6 @@
 """Latawiec: native mobile apps flown from a Python backend."""
 
+from latawiec._reference import reference
 from latawiec.components import (
     Action,
     Button,
@@ -99,5 +100,6 @@ __all__ = [
     "Unlock",
     "Upload",
     "Video",
+    "reference",
     "render",
 ]
